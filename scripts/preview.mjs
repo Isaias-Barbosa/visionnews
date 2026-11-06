@@ -2,6 +2,7 @@ import http from 'node:http';import {mkdirSync,readFileSync} from 'node:fs';impo
 mkdirSync('.data',{recursive:true});const db=new DatabaseSync('.data/preview.sqlite');
 // Local preview only; hosted schema changes are applied by the migration runner.
 const exists=db.prepare("SELECT name FROM sqlite_master WHERE name='news'").get();if(!exists)db.exec(readFileSync('drizzle/0000_news.sql','utf8').replace(/^\uFEFF/,''));
+if(!db.prepare('PRAGMA table_info(news)').all().some(c=>c.name==='body_format'))db.exec(readFileSync('drizzle/0001_editor_reviews_schedule.sql','utf8').replace(/^\uFEFF/,''));
 const mock=process.argv.includes('--admin');
 const env={
  ADMIN_EMAIL:mock?'local-editor@example.invalid':'',

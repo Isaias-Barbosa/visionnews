@@ -19,7 +19,8 @@ try {
    const {rows:fields}=await client.query(
     "SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1 ORDER BY ordinal_position",[table]
    );
-   const columns=fields.map(field=>field.column_name);
+   const sourceColumns=new Set(source.prepare(`PRAGMA table_info(${table})`).all().map(field=>field.name));
+   const columns=fields.map(field=>field.column_name).filter(column=>sourceColumns.has(column));
    if (!columns.length || !columns.every(column=>/^[a-z_]+$/.test(column))) throw Error('Esquema editorial incompatível.');
    const rows=source.prepare(`SELECT ${columns.join(',')} FROM ${table}`).all();
    const placeholders=columns.map((_,index)=>'$'+(index+1)).join(',');

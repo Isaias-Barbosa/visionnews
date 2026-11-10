@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sua conta — VisionNews</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&amp;family=DM+Sans:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/login.css">
+<script defer src="/login.js"></script>
+</head>
+<body class="accountPage">
+<header class="accountHeader">
+<a class="logo" href="/" aria-label="VisionNews, início"><i>V</i>VISION<span>NEWS</span></a>
+<a class="accountBack" href="/">← Voltar ao portal</a>
+</header>
+<main class="accountLayout">
+<section class="accountHero" aria-labelledby="accountHeadline">
+<div class="accountArt" aria-hidden="true">
+<img src="https://cdn.myanimelist.net/images/anime/1015/138006l.jpg" alt="">
+<img src="https://cdn.myanimelist.net/images/anime/1171/109222l.jpg" alt="">
+<img src="https://cdn.myanimelist.net/images/anime/1286/99889l.jpg" alt="">
+</div>
+<div class="accountHeroCopy">
+<span class="accountKicker">VISIONNEWS / CLUBE DE LEITORES</span>
+<h1 id="accountHeadline">Sua próxima<br>maratona <em>começa aqui.</em></h1>
+<p>Explore notícias, reviews e estreias. Guarde os animes que você quer ver e acompanhe sua lista de onde estiver.</p>
+<ul><li>Notícias e reviews</li><li>Calendário de estreias</li><li>Watchlist pessoal</li></ul>
+</div>
+</section>
+<section class="accountCard" aria-labelledby="accountTitle">
+<span class="accountKicker">CONTA VISIONNEWS</span>
+<div class="accountModes" role="group" aria-label="Tipo de acesso">
+<button type="button" id="modeSignIn" aria-pressed="true">Entrar</button>
+<button type="button" id="modeSignUp" aria-pressed="false">Criar conta</button>
+</div>
+<h2 id="accountTitle">Bom te ver por aqui.</h2>
+<p id="accountDescription">Entre para continuar de onde parou.</p>
+<p id="accountNotice" class="accountNotice" hidden></p>
+<form id="accountForm" method="post" autocomplete="on">
+<label id="accountNameField" hidden>Como podemos chamar você?<input name="name" autocomplete="name" maxlength="100" placeholder="Seu nome"></label>
+<label>E-mail<input name="email" type="email" autocomplete="email" maxlength="254" placeholder="voce@exemplo.com" required></label>
+<label for="accountPassword">Senha</label>
+<div class="passwordField">
+<input id="accountPassword" name="password" type="password" autocomplete="current-password" maxlength="128" placeholder="Sua senha" required>
+<button type="button" id="passwordToggle" aria-controls="accountPassword" aria-label="Mostrar senha" aria-pressed="false">Mostrar</button>
+</div>
+<p class="accountHint" id="passwordHint" hidden>Use pelo menos 12 caracteres.</p>
+<button class="primary accountSubmit" type="submit" disabled>Entrar <span aria-hidden="true">↗</span></button>
+<p id="accountStatus" class="accountStatus" role="status" aria-live="polite"></p>
+</form>
+<p class="accountFoot">Você também pode <a href="/">explorar o portal sem conta</a>.</p>
+</section>
+</main>
+</body>
+</html>

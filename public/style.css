@@ -47,3 +47,8 @@ body{background-image:radial-gradient(#b6d66609 .8px,transparent .8px);backgroun
 .watchItems { padding:0; list-style:none; }
 .watchItems li { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--line); }
 .watchItems strong { flex:1 1 180px; overflow-wrap:anywhere; }
+
+.portalActions { display:flex; align-items:center; gap:8px; }
+.portalActions a { white-space:nowrap; }
+#watchAccount p { color:var(--muted); line-height:1.6; }
+#watchAccount .outlineButton { display:inline-flex; align-items:center; margin:6px 0 0; }

@@ -15,6 +15,13 @@
       "when": 1793980800000,
       "tag": "0001_editor_reviews_schedule",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794326400000,
+      "tag": "0002_editorial_dashboard",
+      "breakpoints": true
     }
   ]
 }

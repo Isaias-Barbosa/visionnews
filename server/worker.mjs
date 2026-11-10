@@ -65,10 +65,10 @@ const privatePage = path.match(/^\/(admin|dashboard)(?:\/index\.html|\/)?$/)?.[1
 if (privatePage && ['GET','HEAD'].includes(request.method)) {
  const target = '/'+privatePage;
  if (!request.headers.get('oai-authenticated-user-id'))
-  return Response.redirect(url.origin+'/signin-with-chatgpt?return_to='+encodeURIComponent(target),302);
+  return Response.redirect(env.SIGN_IN_PATH ? new URL(env.SIGN_IN_PATH,url.origin).href : url.origin+'/signin-with-chatgpt?return_to='+encodeURIComponent(target),302);
  if (!(privatePage==='admin' ? canAdmin(request,env) : await canEdit(request,env)))
   return json({error:'Acesso restrito a esta área.'},403);
- return serve(target+'/index.html',request.method==='HEAD');
+ return serve(target+'/index.html',request.method==='HEAD',env.ASSETS);
 }
 if (path==='/api/recommendation' && request.method==='GET') {
  if (!env.DB) return json({error:'Recomendação temporariamente indisponível.'},503);
@@ -107,15 +107,15 @@ if(request.method==='GET'&&!id){const {results}=await env.DB.prepare(`SELECT * F
 if((request.method==='POST'&&!id)||(request.method==='PUT'&&id)){let input;try{input=await bodyJson(request)}catch{return json({error:'Conteúdo inválido ou grande demais.'},400)}const {errors,value:a}=validate(input);if(errors.length)return json({error:errors.join(' ')},422);const now=new Date().toISOString();let existing=null;if(id){if(!Number.isSafeInteger(id)||!Number.isInteger(input.version)||input.version<1)return json({error:'Versão inválida. Recarregue o item.'},422);existing=await env.DB.prepare(`SELECT * FROM ${table} WHERE id=?`).bind(id).first();if(!existing)return json({error:'Item não encontrado.'},404);if(existing.version!==input.version)return json({error:'Este item foi alterado em outra sessão. Recarregue antes de salvar.'},409)}
 try {
 const values=columns.map(c=>a[c]);if(table==='news'){values.push(a.status==='published'?(existing?.published_at||now):existing?.published_at||null)}const writeColumns=table==='news'?[...columns,'published_at']:columns;
-if(!id){const cols=[...writeColumns,'created_at','updated_at'];const result=await env.DB.prepare(`INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(()=>'?').join(',')})`).bind(...values,now,now).run();return json({item:await env.DB.prepare(`SELECT * FROM ${table} WHERE id=?`).bind(result.meta.last_row_id).first()},201)}
+if(!id){const cols=[...writeColumns,'created_at','updated_at'];const item=await env.DB.prepare(`INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(()=>'?').join(',')}) RETURNING *`).bind(...values,now,now).first();return json({item},201)}
 const result=await env.DB.prepare(`UPDATE ${table} SET ${writeColumns.map(c=>c+'=?').join(',')},updated_at=?,version=version+1 WHERE id=? AND version=?`).bind(...values,now,id,input.version).run();if(!result.meta.changes)return json({error:'Conflito de edição. Recarregue o item.'},409);return json({item:await env.DB.prepare(`SELECT * FROM ${table} WHERE id=?`).bind(id).first()})
 } catch (error) {
- if (table==='recommendations' && String(error).includes('recommendations.feature_date'))
+ if (table==='recommendations' && (error?.constraint==='recommendations_feature_date_key' || String(error).includes('recommendations.feature_date')))
   return json({error:'Já existe uma recomendação para esta data. Edite o item existente.'},409);
  throw error;
 }}
 return json({error:'Rota não encontrada.'},404)}
-if(path.startsWith('/api/'))return json({error:'Rota não encontrada.'},404);if(!['GET','HEAD'].includes(request.method))return new Response('Método não permitido',{status:405});return serve(path==='/'?'/index.html':path,request.method==='HEAD');
+if(path.startsWith('/api/'))return json({error:'Rota não encontrada.'},404);if(!['GET','HEAD'].includes(request.method))return new Response('Método não permitido',{status:405});return serve(path==='/'?'/index.html':path,request.method==='HEAD',env.ASSETS);
 }catch(error){console.error('VisionNews request failed',error?.name);return json({error:'Não foi possível concluir. Tente novamente.'},500)}}
-function serve(path,head=false){const asset=assets[path];if(!asset)return new Response('Página não encontrada',{status:404});return securityHeaders(new Response(head?null:asset.body,{headers:{'Content-Type':asset.type,'Cache-Control':(path.includes('/admin/')||path.includes('/dashboard/'))?'no-store':'no-cache'}}))}
+function serve(path,head=false,source=assets){const asset=source[path];if(!asset)return new Response('Página não encontrada',{status:404});return securityHeaders(new Response(head?null:asset.body,{headers:{'Content-Type':asset.type,'Cache-Control':(path.includes('/admin/')||path.includes('/dashboard/'))?'no-store':'no-cache'}}))}
 export default {fetch:handle};

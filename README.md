@@ -58,3 +58,12 @@ O site permanece privado. Abrir acesso público é uma etapa separada; o painel 
 ## Conteúdo e pendências editoriais
 
 A grade da temporada é preenchida pela redação no painel; a prévia com horários fictícios continua opcional e identificada. Não hospedamos episódios. Textos da edição demonstrativa e notas não representam cobertura factual atual. As imagens promocionais são referenciadas externamente; revise direitos de uso, créditos e disponibilidade antes do lançamento comercial. A política editorial, privacidade e termos ainda precisam ser preparados para a abertura pública.
+
+## Vercel e Neon
+
+- Configure o projeto Vercel com o repositório e as opções de `vercel.json`. O build usa Node 22 ou superior.
+- Conecte um banco **dedicado ao VisionNews** no Neon. Configure a URL com pool de conexões como `DATABASE_URL` e uma chave aleatória como `BETTER_AUTH_SECRET`, ambas no ambiente privado da Vercel. Para domínio próprio ou execução local, defina `BETTER_AUTH_URL` com a origem exata.
+- Um build de produção com `DATABASE_URL` aplica as migrações em `postgres/`. Para aplicar manualmente, rode `npm run db:migrate`. Consulte `/api/readiness` para verificar a configuração da conta e do banco.
+- Para preservar os conteúdos editoriais, exporte o D1 completo em SQL e execute `npm run db:import -- caminho/do/export.sql` contra o banco já migrado, antes de criar conteúdo editorial no novo destino. Faça o corte após conferir a cópia. O script mantém os IDs e rejeita um destino com conteúdo.
+- Configure `ADMIN_EMAIL` no servidor e crie a primeira conta com `npm run admin:create` em um terminal seguro, usando também `DATABASE_URL`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET` e a senha inicial em `ADMIN_INITIAL_PASSWORD`. Use uma senha nova e remova a variável inicial depois. O script recusa endereços que já tenham uma conta. Para editores, autorize a conta por e-mail no painel e verifique sua identidade antes de marcar a conta como verificada no PostgreSQL.
+- Contas da watchlist são do VisionNews. Leituras salvas são locais ao navegador e à origem. A versão inicial usa cadastro por e-mail e senha, sem confirmação ou recuperação por e-mail para leitores.

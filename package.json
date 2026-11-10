@@ -6,9 +6,17 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --experimental-sqlite --test tests/*.test.mjs tests/*.test.cjs",
-    "start": "node scripts/preview.mjs"
+    "start": "node scripts/preview.mjs",
+    "build:vercel": "node scripts/build-vercel.mjs",
+    "db:migrate": "node scripts/migrate-postgres.mjs",
+    "admin:create": "node scripts/create-admin.mjs",
+    "db:import": "node --experimental-sqlite scripts/import-d1.mjs"
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "better-auth": "1.7.20",
+    "pg": "8.23.1"
   }
 }

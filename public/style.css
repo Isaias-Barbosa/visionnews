@@ -55,10 +55,22 @@ body{background-image:radial-gradient(#b6d66609 .8px,transparent .8px);backgroun
 
 .featuredHero .animeCollage,.featuredHero .mangaMark { display:none; }
 .featuredHero .heroText h1 { font-size:clamp(2.1rem,5.5vw,4.8rem); overflow-wrap:anywhere; }
-.featuredHero .heroText { max-width:min(94%,760px); }
+.hero.featuredHero { height:auto; min-height:clamp(420px,48vw,630px); display:grid; align-items:center; }
+.featuredHero > img { position:absolute; inset:0; opacity:.55; }
+.featuredHero .heroText { position:relative; inset:auto; max-width:900px; padding:clamp(28px,4.5vw,64px) clamp(22px,4vw,52px); }
+.featuredHero .heroText p { max-width:62ch; }
+.featuredHero .vertical { display:none; }
 .featuredHero .heroShade { background:linear-gradient(90deg,#0d1017f2,#0d1017a0 62%,#0d10174d); }
 .newsLayout:has(#demoNewsAside[hidden]) { grid-template-columns:minmax(0,1fr); }
 #demoNewsAside[hidden],#demoDiscovery[hidden],#demoReview[hidden],.heroIndex[hidden] { display:none; }
 #liveDiscovery a { color:var(--lime); text-decoration:underline; }
 
 .articleInlineImage, .richEditor img { display:block; max-width:100%; height:auto; margin:12px auto; border-radius:8px; }
+
+.heroStatus { display:none; }
+.hero[data-state="loading"] > :not(.heroStatus),
+.hero[data-state="unavailable"] > :not(.heroStatus) { display:none; }
+.hero:is([data-state="loading"],[data-state="unavailable"]) { display:grid; place-items:center; background:#171c25; }
+.hero:is([data-state="loading"],[data-state="unavailable"])::after { display:none; }
+.hero:is([data-state="loading"],[data-state="unavailable"]) .heroStatus { display:block; padding:24px; color:#c2c7d1; }
+.hero > img[hidden] { display:none; }

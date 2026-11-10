@@ -4,7 +4,9 @@ Portal editorial de animes em português brasileiro. Inclui guias e ensaios, rev
 
 ## Administração
 
-Acesse `/admin` no endereço hospedado e entre com a conta ChatGPT autorizada. O painel gerencia as **novas matérias**: criação, rascunhos, edição, prévia, publicação e arquivamento. Os 16 textos estáticos da edição demonstrativa ainda ficam em `public/app.js` e `public/explore.js`.
+Entre com uma conta ChatGPT autorizada. O **dashboard editorial** em `/dashboard` gerencia notícias, reviews, calendário e recomendações. O **painel administrativo** em `/admin` exibe o inventário editorial por status, o estado do banco e permite autorizar ou remover editores por e-mail.
+
+Notícias e reviews têm seção, categoria editorial livre e até dez tags separadas por vírgulas. O título, o resumo, a categoria e as tags entram na busca da home. As matérias podem ser criadas como rascunho, editadas, pré-visualizadas, publicadas e arquivadas. Os 16 textos estáticos da edição demonstrativa ainda ficam em `public/app.js` e `public/explore.js`.
 
 Notícias publicadas exigem fonte HTTPS. O editor visual oferece negrito, itálico, títulos, subtítulos, listas, citações, links HTTPS e desfazer/refazer. A formatação é salva em um documento estruturado `rich-v1`, validado no servidor e renderizado com escape de texto; HTML arbitrário não é aceito. Textos antigos em formato simples continuam compatíveis.
 
@@ -12,9 +14,11 @@ Capas são referenciadas por URL, com prévia e aviso de falha no formulário. A
 
 Na aba **Reviews**, informe o anime avaliado, a nota opcional de 0 a 10 e o veredito. As reviews publicadas aparecem tanto na seleção de conteúdos quanto na área de reviews do portal.
 
-Na aba **Calendário de animes**, crie exibições com título, dia, horário de Brasília (opcional), plataforma, link oficial, idioma/formato, ano, trimestre, episódio e imagem. Apenas exibições publicadas entram no calendário da temporada selecionada. Um horário vazio aparece como “A confirmar”. Dublagem e exibição legendada podem ser cadastradas separadamente. Rascunhos e arquivados ficam fora da API pública. A lista pública mostra até 200 matérias e o painel até 1.000. Não há agendamento automático, usuários adicionais ou histórico completo de versões nesta etapa.
+Na aba **Calendário de animes**, crie exibições com título, dia, horário de Brasília (opcional), plataforma, link oficial, idioma/formato, ano, trimestre, episódio e imagem. Apenas exibições publicadas entram no calendário da temporada selecionada. Um horário vazio aparece como “A confirmar”. Dublagem e exibição legendada podem ser cadastradas separadamente. Rascunhos e arquivados ficam fora da API pública. A lista pública mostra até 200 matérias e o painel até 1.000. Não há agendamento de matérias nem histórico completo de versões.
 
-A API valida as permissões no servidor usando os cabeçalhos de identidade confiáveis do gateway Sites e a variável privada `ADMIN_EMAIL`. Não basta esconder botões ou conhecer o endereço do painel. Escritas exigem origem igual, JSON e versão atual do registro. Rascunhos/arquivados não são retornados pela API pública. Não existem senhas ou chaves no código.
+Na aba **Recomendação do dia**, escolha a data, informe o anime, explique por que assistir e adicione até cinco links oficiais de streaming no Brasil. A capa é opcional. Apenas uma indicação pode ser cadastrada por data. Ao salvar como publicada, a home passa a exibi-la na data escolhida pelo horário de Brasília. Sem indicação publicada para hoje, a home aponta para a área de descoberta. A seleção é manual e não requer um cron.
+
+A API valida as permissões no servidor usando os cabeçalhos de identidade confiáveis do gateway Sites e a variável privada `ADMIN_EMAIL`. A conta administradora concede permissões editoriais por e-mail em `/admin`. Editores também precisam ter acesso ao Site pela hospedagem. Somente a conta administradora acessa `/admin`. Não basta esconder botões ou conhecer o endereço do painel. Escritas exigem origem igual, JSON e versão atual do registro. Rascunhos/arquivados não são retornados pela API pública. Não existem senhas ou chaves no código.
 
 ## Executar
 

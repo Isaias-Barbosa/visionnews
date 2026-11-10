@@ -5,3 +5,27 @@ body{background-image:radial-gradient(#b6d66609 .8px,transparent .8px);backgroun
 .sourceGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.sourceGrid a{padding:28px;background:linear-gradient(135deg,#222b25,#151923);border:1px solid var(--line);border-top:2px solid var(--lime);border-radius:4px}.sourceGrid a:nth-child(2){background:linear-gradient(135deg,#302128,#151923);border-top-color:#fb627a}.sourceGrid a:nth-child(3){background:linear-gradient(135deg,#202b34,#151923);border-top-color:#78bdd3}.sourceGrid h3{font-size:32px;line-height:1.05;margin:22px 0}.sourceGrid small{color:var(--muted);font-size:10px}.sourceGrid a:hover{border-color:var(--lime)}.footerLink{font-size:10px;color:var(--muted)}.footerLink:hover{color:var(--lime)}@media(max-width:600px){.sourceGrid{grid-template-columns:1fr;gap:12px}.sourceGrid a{padding:25px}.sourceGrid h3{font-size:30px;margin:15px 0}.sourceGrid h3 br{display:none}}
 .liveNewsStatus{font-size:10px;line-height:1.8;color:var(--muted);padding:10px 13px;background:#d9ff6005;border-left:2px solid #637c35;margin:-10px 0 22px}dialog p>a{color:var(--lime);text-decoration:underline;text-underline-offset:3px}
 .articleCover{display:block;width:100%;height:auto;max-height:480px;object-fit:contain;background:#080b11;border-radius:4px;margin:25px 0}.articleCoverFallback{font-size:10px;color:var(--muted)}.formattedContent{font-size:14px;color:#b9bfcc;line-height:1.9}.formattedContent p{white-space:pre-wrap}.formattedContent h2{font-size:30px;line-height:1.2;margin:25px 0 15px;color:white}.formattedContent h3{font-size:25px;color:white}.formattedContent em{font-style:italic;color:inherit}.formattedContent a{color:var(--lime);text-decoration:underline}.formattedContent blockquote{border-left:3px solid var(--lime);padding:10px 20px;margin:20px 0;background:#d9ff6008}.formattedContent ul,.formattedContent ol{padding-left:25px}.reviewVerdict{display:flex;gap:20px;align-items:center;border:1px solid #526335;background:#d9ff6007;padding:20px;margin:20px 0}.reviewVerdict>b{font:38px 'Barlow Condensed',sans-serif;color:var(--lime);white-space:nowrap}.reviewVerdict>span{font-size:12px;line-height:1.8;color:#b8c0cc}.publicReviews{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px}.publicReviews button{background:var(--panel);border:1px solid var(--line);padding:20px;text-align:left}.publicReviews h3{font-size:27px;margin:15px 0}.publicReviews strong{font-family:'Barlow Condensed';font-size:35px;color:var(--lime)}.publicReviews p{font-size:11px;line-height:1.8;color:var(--muted)}.calendarToolbar{flex-wrap:wrap}.calendarToolbar select{max-width:230px}@media(max-width:760px){.publicReviews{grid-template-columns:1fr}.reviewVerdict{align-items:start;gap:15px}.reviewVerdict>b{font-size:30px}}
+
+/* Editorial rhythm and accessible interaction */
+:root { --muted: #aab1c1; }
+:focus-visible { outline: 2px solid var(--lime); outline-offset: 4px; }
+.skipLink { position:absolute; top:8px; left:8px; z-index:20; padding:12px; background:var(--lime); color:var(--bg); transform:translateY(-150%); }
+.skipLink:focus { transform:none; }
+.dailyCard { display:flex; align-items:stretch; overflow:hidden; background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--lime); border-radius:8px; }
+.dailyCover { width:clamp(140px, 23%, 250px); aspect-ratio: 3 / 4; object-fit:cover; align-self:start; }
+.dailyCopy { padding:clamp(22px, 4vw, 48px); min-width:0; overflow-wrap:anywhere; }
+.dailyCopy h3 { font-size:clamp(2rem, 5vw, 3.5rem); margin:.15em 0; line-height:1.05; }
+.dailyCopy p { max-width:65ch; line-height:1.65; }
+.dailyLinks { display:flex; flex-wrap:wrap; gap:10px; }
+.dailyLinks a { display:inline-flex; align-items:center; min-height:44px; padding:8px 14px; border:1px solid #555e6f; border-radius:4px; font-weight:700; }
+.dailyLinks a:hover { border-color:var(--lime); color:var(--lime); }
+.dailyPlaceholder { margin:0; padding:24px; line-height:1.6; color:var(--muted); }
+.dailyPlaceholder a { color:var(--lime); text-decoration:underline; }
+.card .taxonomy { color:var(--lime); overflow-wrap:anywhere; }
+@media (max-width:600px) {
+ .dailyCard { flex-direction:column; }
+ .dailyCover { width:100%; max-height:260px; object-position:center 30%; }
+}
+@media (prefers-reduced-motion:reduce) {
+ *, *::before, *::after { scroll-behavior:auto!important; transition-duration:0.01ms!important; animation-duration:0.01ms!important; }
+}

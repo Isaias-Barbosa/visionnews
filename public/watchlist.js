@@ -3,14 +3,12 @@
  const account = get('watchAccount');
  const member = get('watchMember');
  const feedback = get('watchFeedback');
- const authForm = get('watchAuthForm');
  const addForm = get('watchAddForm');
  const filter = get('watchFilter');
  const list = get('watchItems');
  const statuses = {
   planned:'Quero assistir',watching:'Assistindo',completed:'Concluído',paused:'Pausado',dropped:'Abandonado'
  };
- let creating = false;
  let items = [];
  let busy = false;
 
@@ -62,6 +60,8 @@
   get('watchWelcome').textContent = '';
   member.hidden = true;
   account.hidden = false;
+  get('portalAccountLink').href = '/login';
+  get('portalAccountLink').textContent = 'Entrar';
  }
 
  function render() {
@@ -118,38 +118,11 @@
   items = data.items;
   account.hidden = true;
   member.hidden = false;
+  get('portalAccountLink').href = '#biblioteca';
+  get('portalAccountLink').textContent = 'Minha conta';
   get('watchWelcome').textContent = 'Olá, '+session.user.name+'.';
   render();
  }
-
- get('watchAuthToggle').addEventListener('click',() => {
-  if (busy) return;
-  creating = !creating;
-  get('watchNameField').hidden = !creating;
-  authForm.elements.name.required = creating;
-  authForm.elements.password.autocomplete = creating ? 'new-password' : 'current-password';
-  get('watchAuthTitle').textContent = creating ? 'Crie sua conta VisionNews' : 'Entre para ver sua watchlist';
-  authForm.querySelector('[type=submit]').textContent = creating ? 'Criar conta' : 'Entrar';
-  get('watchAuthToggle').textContent = creating ? 'Já tenho conta' : 'Criar conta';
-  feedback.textContent = '';
- });
-
- authForm.addEventListener('submit',event => {
-  event.preventDefault();
-  const values = new FormData(authForm);
-  act(async () => {
-   const input = {email:values.get('email'),password:values.get('password')};
-   if (creating) input.name = values.get('name').trim();
-   try {
-    await api(creating ? '/api/auth/sign-up/email' : '/api/auth/sign-in/email','POST',input);
-   } catch (error) {
-    if (error.message.startsWith('Muitas tentativas')) throw error;
-    throw Error(creating ? 'Não foi possível criar a conta. Confira o e-mail e use uma senha de pelo menos 12 caracteres.' : 'Não foi possível entrar. Confira o e-mail e a senha.');
-   }
-   authForm.reset();
-   await loadAccount();
-  });
- });
 
  get('watchSignOut').addEventListener('click',() => act(async () => {
   await api('/api/auth/sign-out','POST',{});

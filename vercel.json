@@ -5,6 +5,10 @@
   "outputDirectory": "dist/vercel",
   "rewrites": [
     {
+      "source": "/login",
+      "destination": "/login.html"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/visionnews"
     },

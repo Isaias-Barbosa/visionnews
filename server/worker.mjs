@@ -64,8 +64,11 @@ if(path==='/api/health')return json({ok:true});
 const privatePage = path.match(/^\/(admin|dashboard)(?:\/index\.html|\/)?$/)?.[1];
 if (privatePage && ['GET','HEAD'].includes(request.method)) {
  const target = '/'+privatePage;
- if (!request.headers.get('oai-authenticated-user-id'))
-  return Response.redirect(env.SIGN_IN_PATH ? new URL(env.SIGN_IN_PATH,url.origin).href : url.origin+'/signin-with-chatgpt?return_to='+encodeURIComponent(target),302);
+ if (!request.headers.get('oai-authenticated-user-id')) {
+  const login = new URL(env.SIGN_IN_PATH || '/signin-with-chatgpt',url.origin);
+  login.searchParams.set(env.SIGN_IN_PATH ? 'next' : 'return_to',target);
+  return Response.redirect(login,302);
+ }
  if (!(privatePage==='admin' ? canAdmin(request,env) : await canEdit(request,env)))
   return json({error:'Acesso restrito a esta área.'},403);
  return serve(target+'/index.html',request.method==='HEAD',env.ASSETS);
@@ -115,7 +118,7 @@ const result=await env.DB.prepare(`UPDATE ${table} SET ${writeColumns.map(c=>c+'
  throw error;
 }}
 return json({error:'Rota não encontrada.'},404)}
-if(path.startsWith('/api/'))return json({error:'Rota não encontrada.'},404);if(!['GET','HEAD'].includes(request.method))return new Response('Método não permitido',{status:405});return serve(path==='/'?'/index.html':path,request.method==='HEAD',env.ASSETS);
+if(path.startsWith('/api/'))return json({error:'Rota não encontrada.'},404);if(!['GET','HEAD'].includes(request.method))return new Response('Método não permitido',{status:405});return serve(path==='/'?'/index.html':path==='/login'?'/login.html':path,request.method==='HEAD',env.ASSETS);
 }catch(error){console.error('VisionNews request failed',error?.name);return json({error:'Não foi possível concluir. Tente novamente.'},500)}}
 function serve(path,head=false,source=assets){const asset=source[path];if(!asset)return new Response('Página não encontrada',{status:404});return securityHeaders(new Response(head?null:asset.body,{headers:{'Content-Type':asset.type,'Cache-Control':(path.includes('/admin/')||path.includes('/dashboard/'))?'no-store':'no-cache'}}))}
 export default {fetch:handle};

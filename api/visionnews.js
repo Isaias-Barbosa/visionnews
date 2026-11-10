@@ -49,10 +49,16 @@ export async function dispatch(request) {
   headers.set('oai-authenticated-user-id',session.user.id);
   headers.set('oai-authenticated-user-email',session.user.email);
  }
+ const protectedPage = url.pathname.match(/^\/(admin|dashboard)(?:\/index\.html|\/)?$/);
+ if (session?.user && !session.user.emailVerified && protectedPage && ['GET','HEAD'].includes(request.method)) {
+  const login = new URL('/login',url.origin);
+  login.search = new URLSearchParams({next:'/'+protectedPage[1],reason:'verification'});
+  return Response.redirect(login,302);
+ }
  const forwarded = new Request(request,{headers});
  return worker.fetch(forwarded,{
   DB:service?.DB, ADMIN_EMAIL:process.env.ADMIN_EMAIL,
-  SIGN_IN_PATH:'/#biblioteca', ASSETS:editorialAssets
+  SIGN_IN_PATH:'/login', ASSETS:editorialAssets
  });
 }
 

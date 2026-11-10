@@ -32,3 +32,14 @@
 #editorAccounts { padding-left:20px; }
 #editorAccounts li { margin:12px 0; }
 #editorAccounts button { margin-left:10px; }
+
+#editorForm .featuredChoice { display:flex; align-items:center; gap:9px; margin-bottom:4px; }
+#editorForm .featuredChoice input { width:auto; margin:0; accent-color:var(--lime); }
+#featuredFields { margin-bottom:20px; }
+.richEditor.richExpanded { min-height:58vh; }
+.editorFoot { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.linkFields:not([hidden]) { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:10px; border:1px solid var(--line); }
+#editorForm .linkFields label { margin:0; }
+#editorForm .linkFields input { width:auto; flex:1 1 180px; }
+.linkFields button { background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:8px; }
+#editorLinkError { color:#f4c2b4; }

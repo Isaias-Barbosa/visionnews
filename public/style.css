@@ -52,3 +52,11 @@ body{background-image:radial-gradient(#b6d66609 .8px,transparent .8px);backgroun
 .portalActions a { white-space:nowrap; }
 #watchAccount p { color:var(--muted); line-height:1.6; }
 #watchAccount .outlineButton { display:inline-flex; align-items:center; margin:6px 0 0; }
+
+.featuredHero .animeCollage,.featuredHero .mangaMark { display:none; }
+.featuredHero .heroText h1 { font-size:clamp(2.1rem,5.5vw,4.8rem); overflow-wrap:anywhere; }
+.featuredHero .heroText { max-width:min(94%,760px); }
+.featuredHero .heroShade { background:linear-gradient(90deg,#0d1017f2,#0d1017a0 62%,#0d10174d); }
+.newsLayout:has(#demoNewsAside[hidden]) { grid-template-columns:minmax(0,1fr); }
+#demoNewsAside[hidden],#demoDiscovery[hidden],#demoReview[hidden],.heroIndex[hidden] { display:none; }
+#liveDiscovery a { color:var(--lime); text-decoration:underline; }

@@ -3,6 +3,7 @@ const db=new DatabaseSync(':memory:');
 db.exec(readFileSync('drizzle/0000_news.sql','utf8').replace(/^\uFEFF/,''));
 db.exec(readFileSync('drizzle/0001_editor_reviews_schedule.sql','utf8').replace(/^\uFEFF/,''));
 db.exec(readFileSync('drizzle/0002_editorial_dashboard.sql','utf8'));
+db.exec(readFileSync('drizzle/0003_news_feature.sql','utf8'));
 const env={
  ADMIN_EMAIL:'editor@example.com',
  DB:{prepare(sql){
@@ -18,6 +19,33 @@ const env={
 const sample={title:'Uma nova história para descobrir',summary:'Uma notícia de teste para verificar o fluxo da redação.',body:'Conteúdo de teste para confirmar que somente matérias publicadas entram no portal.',author:'Redação',category:'Notícias',status:'draft',cover:'',source_url:'https://example.com/noticia',source_label:'Fonte oficial'};
 const headers={'oai-authenticated-user-id':'editor-id','oai-authenticated-user-email':'editor@example.com','Origin':'https://vision.test','Content-Type':'application/json'};
 const request=(path,method='GET',body,extra={})=>new Request('https://vision.test'+path,{method,headers:{...headers,...extra},...(body?{body:JSON.stringify(body)}:{})});
+test('first published news retires demo and only the latest featured decision controls the banner',async()=>{
+ const publicNews=async()=>await (await worker.fetch(request('/api/news'),env)).json();
+ const create=async input=>{
+  const response=await worker.fetch(request('/api/editor/news','POST',{...sample,...input}),env);
+  assert.equal(response.status,201);
+  return (await response.json()).item;
+ };
+ const edit=async(item,input)=>{
+  const response=await worker.fetch(request('/api/editor/news/'+item.id,'PUT',{...sample,version:item.version,...input}),env);
+  assert.equal(response.status,200);
+  return (await response.json()).item;
+ };
+ assert.equal((await publicNews()).demo,true);
+ let first=await create({featured:true});
+ assert.equal((await publicNews()).demo,true);
+ assert.equal((await publicNews()).featuredId,null);
+ first=await edit(first,{status:'published',featured:true});
+ assert.equal((await publicNews()).demo,false);
+ assert.equal((await publicNews()).featuredId,first.id);
+ let second=await create({status:'published',featured:true});
+ assert.equal((await publicNews()).featuredId,second.id);
+ second=await edit(second,{status:'archived',featured:true});
+ assert.equal((await publicNews()).featuredId,null);
+ await edit(first,{status:'archived',category:'Guias',featured:false});
+ assert.equal((await publicNews()).demo,false);
+ db.exec('DELETE FROM news');
+});
 test('authorization fails closed and does not expose drafts',async()=>{assert.equal(canAdmin(new Request('https://vision.test'),env),false);assert.equal(canAdmin(request('/'),{}),false);assert.equal((await worker.fetch(new Request('https://vision.test/api/admin/news'),env)).status,401);assert.equal((await worker.fetch(request('/api/admin/news','GET',null,{'oai-authenticated-user-email':'other@example.com'}),env)).status,403);assert.equal((await worker.fetch(request('/api/admin/news','POST',sample,{Origin:'https://other.test'}),env)).status,403);assert.equal((await worker.fetch(request('/admin'),env)).status,200)});
 test('validation rejects unsafe links and unsourced published news',()=>{assert(validateNews({...sample,cover:'javascript:alert(1)'}).errors.length);assert(validateNews({...sample,status:'published',source_url:''}).errors.length);assert.equal(validateNews(sample).errors.length,0)});
 test('create, publish, conflict, unpublish and archive with real SQLite schema',async()=>{let r=await worker.fetch(request('/api/admin/news','POST',sample),env);assert.equal(r.status,201);let {item}=await r.json();assert.equal(item.version,1);const list=async()=>{const r=await worker.fetch(request('/api/news'),env);return (await r.json()).items};assert.equal((await list()).length,0);r=await worker.fetch(request('/api/admin/news/'+item.id,'PUT',{...sample,status:'published',version:1}),env);assert.equal(r.status,200);item=(await r.json()).item;assert.equal(item.version,2);assert(item.published_at);assert.equal((await list()).length,1);assert(!('version' in (await list())[0]));r=await worker.fetch(request('/api/admin/news/'+item.id,'PUT',{...sample,status:'published',version:1}),env);assert.equal(r.status,409);r=await worker.fetch(request('/api/admin/news/'+item.id,'PUT',{...sample,status:'archived',version:2}),env);assert.equal(r.status,200);assert.equal((await list()).length,0);const admin=await worker.fetch(request('/api/admin/news'),env);assert.equal((await admin.json()).items[0].status,'archived')});

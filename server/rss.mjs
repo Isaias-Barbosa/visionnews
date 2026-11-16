@@ -1,0 +1,524 @@
+
+import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
+import http from 'node:http';
+import https from 'node:https';
+
+const MAX_FEED_SIZE = 2 * 1024 * 1024;
+const MAX_ITEMS = 100;
+const MAX_REDIRECTS = 5;
+const REQUEST_TIMEOUT = 12000;
+
+const parser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: '@_',
+  textNodeName: '#text',
+  trimValues: true,
+  parseTagValue: false,
+  parseAttributeValue: false,
+  processEntities: false,
+  removeNSPrefix: false,
+  allowBooleanAttributes: false,
+  maxNestedTags: 100
+});
+
+const array = value => {
+  if (value === undefined || value === null) return [];
+  return Array.isArray(value) ? value : [value];
+};
+
+function getValue(value) {
+  if (value === undefined || value === null) return '';
+
+  if (typeof value === 'string' || typeof value === 'number') {
+    return String(value);
+  }
+
+  if (typeof value === 'object') {
+    return String(
+      value['#text'] ??
+      value['#cdata'] ??
+      value['@_href'] ??
+      ''
+    );
+  }
+
+  return '';
+}
+
+function firstValue(object, keys) {
+  if (!object || typeof object !== 'object') return '';
+
+  for (const key of keys) {
+    const value = getValue(object[key]);
+    if (value.trim()) return value;
+  }
+
+  return '';
+}
+
+function cleanText(value, maxLength = 100000) {
+  return String(value || '')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&#(\d+);/g, (_, code) => {
+      const number = Number(code);
+      return number > 0 && number <= 0x10FFFF
+        ? String.fromCodePoint(number)
+        : '';
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
+      const number = parseInt(code, 16);
+      return number > 0 && number <= 0x10FFFF
+        ? String.fromCodePoint(number)
+        : '';
+    })
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
+}
+
+function extractImage(value) {
+  const html = getValue(value);
+
+  const match = html.match(
+    /<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/i
+  );
+
+  if (!match) return '';
+
+  try {
+    const url = new URL(match[1]);
+    return ['http:', 'https:'].includes(url.protocol)
+      ? url.href
+      : '';
+  } catch {
+    return '';
+  }
+}
+
+function normalizeUrl(value, baseUrl = '') {
+  if (!value) return '';
+
+  try {
+    const url = new URL(value, baseUrl);
+
+    if (!['http:', 'https:'].includes(url.protocol)) return '';
+    if (url.username || url.password) return '';
+
+    return url.href;
+  } catch {
+    return '';
+  }
+}
+
+function isPrivateIPv4(address) {
+  const parts = address.split('.').map(Number);
+
+  if (parts.length !== 4 || parts.some(n => n < 0 || n > 255)) {
+    return true;
+  }
+
+  const [a, b] = parts;
+
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    a >= 224 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 0) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19))
+  );
+}
+
+function isPrivateIPv6(address) {
+  const ip = address.toLowerCase();
+
+  return (
+    ip === '::' ||
+    ip === '::1' ||
+    ip.startsWith('fc') ||
+    ip.startsWith('fd') ||
+    ip.startsWith('fe8') ||
+    ip.startsWith('fe9') ||
+    ip.startsWith('fea') ||
+    ip.startsWith('feb') ||
+    ip.startsWith('ff') ||
+    ip.startsWith('2001:db8:')
+  );
+}
+
+function isPublicAddress(address) {
+  const version = isIP(address);
+
+  if (version === 4) return !isPrivateIPv4(address);
+
+  if (version === 6) {
+    if (address.toLowerCase().startsWith('::ffff:')) {
+      const mapped = address.slice(7);
+      if (isIP(mapped) === 4) return !isPrivateIPv4(mapped);
+    }
+
+    return !isPrivateIPv6(address);
+  }
+
+  return false;
+}
+
+/**
+ * Valida a URL e resolve o domínio para evitar destinos privados.
+ * A conexão utiliza o IP validado para reduzir riscos de DNS rebinding.
+ */
+async function resolvePublicHost(url) {
+  const hostname = url.hostname.replace(/^\[|\]$/g, '');
+
+  if (!hostname || hostname === 'localhost') {
+    throw new Error('Endereço de feed não permitido.');
+  }
+
+  if (isIP(hostname)) {
+    throw new Error('Feeds com endereço IP direto não são permitidos.');
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('Protocolo não permitido.');
+  }
+
+  if (url.username || url.password) {
+    throw new Error('URL com credenciais não permitida.');
+  }
+
+  if (url.port && !['80', '443'].includes(url.port)) {
+    throw new Error('Porta não permitida.');
+  }
+
+  const addresses = await lookup(hostname, {
+    all: true,
+    verbatim: true
+  });
+
+  if (!addresses.length || addresses.some(item => !isPublicAddress(item.address))) {
+    throw new Error('O domínio aponta para um endereço não permitido.');
+  }
+
+  return addresses[0];
+}
+
+export async function validateFeedUrl(value) {
+  let url;
+
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('Informe uma URL válida para o feed.');
+  }
+
+  await resolvePublicHost(url);
+
+  return url.href;
+}
+
+function requestOnce(url, address) {
+  return new Promise((resolve, reject) => {
+    const transport = url.protocol === 'https:' ? https : http;
+
+    const request = transport.request(url, {
+      method: 'GET',
+      agent: false,
+      lookup: (_hostname, _options, callback) => {
+        callback(null, address.address, isIP(address.address));
+      },
+      headers: {
+        'User-Agent': 'VisionNewsRSS/1.0',
+        'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*'
+      }
+    }, response => {
+      const chunks = [];
+      let size = 0;
+
+      response.on('data', chunk => {
+        size += chunk.length;
+
+        if (size > MAX_FEED_SIZE) {
+          request.destroy(new Error('O feed ultrapassou o limite de 2 MB.'));
+          return;
+        }
+
+        chunks.push(chunk);
+      });
+
+      response.on('end', () => {
+        resolve({
+          status: response.statusCode,
+          headers: response.headers,
+          body: Buffer.concat(chunks).toString('utf8')
+        });
+      });
+
+      response.on('error', reject);
+    });
+
+    request.setTimeout(REQUEST_TIMEOUT, () => {
+      request.destroy(new Error('Tempo limite ao consultar o feed.'));
+    });
+
+    request.on('error', reject);
+    request.end();
+  });
+}
+
+async function downloadFeed(initialUrl) {
+  let currentUrl = new URL(initialUrl);
+
+  for (let attempt = 0; attempt <= MAX_REDIRECTS; attempt++) {
+    const address = await resolvePublicHost(currentUrl);
+    const response = await requestOnce(currentUrl, address);
+
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.location;
+
+      if (!location) {
+        throw new Error('Redirecionamento sem destino.');
+      }
+
+      currentUrl = new URL(location, currentUrl);
+
+      if (attempt === MAX_REDIRECTS) {
+        throw new Error('O feed excedeu o limite de redirecionamentos.');
+      }
+
+      continue;
+    }
+
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`O feed respondeu com HTTP ${response.status}.`);
+    }
+
+    if (!response.body.trim()) {
+      throw new Error('O feed retornou conteúdo vazio.');
+    }
+
+    return {
+      xml: response.body,
+      finalUrl: currentUrl.href,
+      etag: response.headers.etag || null,
+      lastModified: response.headers['last-modified'] || null
+    };
+  }
+
+  throw new Error('Não foi possível acessar o feed.');
+}
+
+function getAtomLink(item, baseUrl) {
+  const links = array(item.link);
+
+  const preferred =
+    links.find(link => link['@_rel'] === 'alternate') ||
+    links.find(link => !link['@_rel']) ||
+    links[0];
+
+  return normalizeUrl(
+    preferred?.['@_href'] || getValue(preferred),
+    baseUrl
+  );
+}
+
+function getImage(item, baseUrl) {
+  const enclosure = array(item.enclosure).find(entry => {
+    const type = String(entry['@_type'] || '');
+    return type.startsWith('image/');
+  });
+
+  const mediaContent =
+    item['media:content'] ||
+    item['media:thumbnail'] ||
+    item['media:group']?.['media:content'];
+
+  const media = array(mediaContent)[0];
+
+  const candidates = [
+    enclosure?.['@_url'],
+    media?.['@_url'],
+    item.image?.url,
+    extractImage(item['content:encoded']),
+    extractImage(item.description),
+    extractImage(item.content),
+    extractImage(item.summary)
+  ];
+
+  for (const candidate of candidates) {
+    const image = normalizeUrl(getValue(candidate), baseUrl);
+    if (image) return image;
+  }
+
+  return '';
+}
+
+function normalizeItem(item, baseUrl, atom = false) {
+  const title = cleanText(firstValue(item, ['title']), 500);
+
+  const link = atom
+    ? getAtomLink(item, baseUrl)
+    : normalizeUrl(firstValue(item, ['link']), baseUrl);
+
+  const contentSource = firstValue(item, [
+    'content:encoded',
+    'content',
+    'description',
+    'summary'
+  ]);
+
+  const summarySource = firstValue(item, [
+    'description',
+    'summary',
+    'subtitle',
+    'content:encoded',
+    'content'
+  ]);
+
+  const guid = firstValue(item, ['guid', 'id']);
+  const publishedRaw = firstValue(item, [
+    'pubDate',
+    'published',
+    'updated',
+    'dc:date'
+  ]);
+
+  const parsedDate = publishedRaw
+    ? new Date(publishedRaw)
+    : null;
+
+  const publishedAt =
+    parsedDate && Number.isFinite(parsedDate.getTime())
+      ? parsedDate.toISOString()
+      : null;
+
+  const author = cleanText(
+    firstValue(item, ['author', 'dc:creator']),
+    160
+  );
+
+  return {
+    guid: cleanText(guid || link || title, 1000),
+    title,
+    summary: cleanText(summarySource, 5000),
+    content: cleanText(contentSource, 100000),
+    link,
+    image: getImage(item, baseUrl),
+    author,
+    publishedAt
+  };
+}
+
+export function parseFeed(xml, baseUrl = '') {
+  if (typeof xml !== 'string' || !xml.trim()) {
+    throw new Error('Conteúdo XML inválido.');
+  }
+
+  if (Buffer.byteLength(xml, 'utf8') > MAX_FEED_SIZE) {
+    throw new Error('O feed ultrapassou o limite permitido.');
+  }
+
+  // Não processamos DTD ou declarações de entidades externas.
+  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) {
+    throw new Error('O feed contém declarações XML não permitidas.');
+  }
+
+  const validation = XMLValidator.validate(xml);
+
+  if (validation !== true) {
+    throw new Error('O XML do feed está malformado.');
+  }
+
+  const parsed = parser.parse(xml);
+
+  const atomFeed = parsed.feed;
+  const rssChannel = parsed.rss?.channel;
+
+  // RSS 2.0
+  if (rssChannel) {
+    const items = array(rssChannel.item)
+      .slice(0, MAX_ITEMS)
+      .map(item => normalizeItem(item, baseUrl));
+
+    return {
+      format: 'rss',
+      title: cleanText(getValue(rssChannel.title), 200),
+      description: cleanText(getValue(rssChannel.description), 1000),
+      siteUrl: normalizeUrl(getValue(rssChannel.link), baseUrl),
+      items: items.filter(item => item.title)
+    };
+  }
+
+  // Atom
+  if (atomFeed) {
+    const items = array(atomFeed.entry)
+      .slice(0, MAX_ITEMS)
+      .map(item => normalizeItem(item, baseUrl, true));
+
+    return {
+      format: 'atom',
+      title: cleanText(getValue(atomFeed.title), 200),
+      description: cleanText(getValue(atomFeed.subtitle), 1000),
+      siteUrl: getAtomLink(atomFeed, baseUrl),
+      items: items.filter(item => item.title)
+    };
+  }
+
+  // RSS 1.0 / RDF
+  const rdfKey = Object.keys(parsed).find(key =>
+    key.toLowerCase().endsWith(':rdf')
+  );
+
+  if (rdfKey) {
+    const rdf = parsed[rdfKey];
+    const channel = rdf.channel || {};
+
+    const items = array(rdf.item)
+      .slice(0, MAX_ITEMS)
+      .map(item => normalizeItem(item, baseUrl));
+
+    return {
+      format: 'rdf',
+      title: cleanText(getValue(channel.title), 200),
+      description: cleanText(getValue(channel.description), 1000),
+      siteUrl: normalizeUrl(getValue(channel.link), baseUrl),
+      items: items.filter(item => item.title)
+    };
+  }
+
+  throw new Error('Formato não reconhecido. Esperado RSS ou Atom.');
+}
+
+/**
+ * Consulta e interpreta um feed.
+ * Retorna os dados normalizados para o worker persistir no PostgreSQL.
+ */
+export async function fetchAndParseFeed(feedUrl) {
+  const safeUrl = await validateFeedUrl(feedUrl);
+  const downloaded = await downloadFeed(safeUrl);
+
+  const feed = parseFeed(downloaded.xml, downloaded.finalUrl);
+
+  return {
+    ...feed,
+    requestedUrl: safeUrl,
+    finalUrl: downloaded.finalUrl,
+    etag: downloaded.etag,
+    lastModified: downloaded.lastModified,
+    fetchedAt: new Date().toISOString()
+  };
+}

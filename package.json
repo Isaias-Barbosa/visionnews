@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "better-auth": "1.7.20",
+    "fast-xml-parser": "^5.12.1",
     "pg": "8.23.1"
   }
 }

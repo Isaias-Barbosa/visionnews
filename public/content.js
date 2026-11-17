@@ -136,9 +136,14 @@
             if (!image) throw Error("Imagem inválida ou grande demais.");
 
             imageLength += image.length;
-            if (imageLength > 600000) {
-              throw Error("O conjunto de imagens desta matéria excedeu o limite.");
-            }
+
+const maxTotalImageLength = 800000;
+
+if (imageLength > maxTotalImageLength) {
+  throw Error(
+    "O conjunto de imagens desta matéria excedeu o limite de 800 KB. Comprima ou reduza algumas imagens."
+  );
+}
 
             return { image };
           }

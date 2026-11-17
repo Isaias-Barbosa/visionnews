@@ -203,10 +203,14 @@
     preview.className = "videoEmbedPreview";
 
     const iframe = document.createElement("iframe");
-    iframe.src = "https://www.youtube-nocookie.com/embed/" + id;
-    iframe.title = "Vídeo do YouTube";
-    iframe.loading = "lazy";
-    iframe.allowFullscreen = true;
+iframe.src = "https://www.youtube-nocookie.com/embed/" + id;
+iframe.title = "Vídeo do YouTube";
+iframe.loading = "lazy";
+
+// Necessário para o YouTube identificar a origem do player.
+iframe.referrerPolicy = "strict-origin-when-cross-origin";
+
+iframe.allowFullscreen = true;
     iframe.setAttribute(
       "allow",
       "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share",

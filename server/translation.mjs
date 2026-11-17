@@ -1,27 +1,9 @@
-const API_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models";
 
-const DEFAULT_MODEL = "gemini-3.1-flash-lite";
+const API_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+const DEFAULT_MODEL = "openrouter/free";
 const MAX_TEXTS = 500;
 const MAX_TOTAL_CHARS = 70000;
-
-const responseSchema = {
-  type: "OBJECT",
-  properties: {
-    translations: {
-      type: "ARRAY",
-      items: {
-        type: "OBJECT",
-        properties: {
-          id: { type: "STRING" },
-          text: { type: "STRING" },
-        },
-        required: ["id", "text"],
-      },
-    },
-  },
-  required: ["translations"],
-};
 
 function validateInput(texts) {
   if (!Array.isArray(texts) || texts.length === 0) {
@@ -65,39 +47,57 @@ function validateInput(texts) {
 }
 
 function extractResponse(data) {
-  const candidate = data?.candidates?.[0];
+  const choice = data?.choices?.[0];
 
-  if (!candidate) {
-    throw new Error("A Gemini não retornou uma tradução.");
+  if (!choice) {
+    throw new Error("O OpenRouter não retornou uma tradução.");
   }
 
-  if (candidate.finishReason === "MAX_TOKENS") {
+  if (choice.finish_reason === "length") {
     throw new Error(
       "A tradução ficou muito extensa e foi interrompida. Tente dividir a matéria.",
     );
   }
 
-  const parts = candidate.content?.parts || [];
-  const content = parts
-    .filter((part) => typeof part.text === "string" && !part.thought)
-    .map((part) => part.text)
-    .join("")
-    .trim();
+  const message = choice.message;
 
-  if (!content) {
-    throw new Error("A Gemini retornou uma resposta vazia.");
+  if (message?.refusal) {
+    throw new Error("O modelo recusou a tradução do conteúdo enviado.");
   }
+
+  let content = message?.content;
+
+  if (Array.isArray(content)) {
+    content = content
+      .filter((part) => part.type === "text" && typeof part.text === "string")
+      .map((part) => part.text)
+      .join("");
+  }
+
+  if (typeof content !== "string" || !content.trim()) {
+    throw new Error("O OpenRouter retornou uma resposta vazia.");
+  }
+
+  content = content.trim();
+
+  // Remove cercas Markdown caso algum modelo as inclua.
+  content = content
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
 
   try {
     return JSON.parse(content);
   } catch {
-    throw new Error("A Gemini retornou um formato de tradução inválido.");
+    throw new Error("O OpenRouter retornou um formato de tradução inválido.");
   }
 }
 
 function validateOutput(result, originalTexts) {
   if (!result || !Array.isArray(result.translations)) {
-    throw new Error("A resposta da Gemini não contém as traduções esperadas.");
+    throw new Error(
+      "A resposta do OpenRouter não contém as traduções esperadas.",
+    );
   }
 
   const originalById = new Map(
@@ -105,7 +105,7 @@ function validateOutput(result, originalTexts) {
   );
 
   if (result.translations.length !== originalTexts.length) {
-    throw new Error("A Gemini não traduziu todos os trechos enviados.");
+    throw new Error("O modelo não traduziu todos os trechos enviados.");
   }
 
   const translatedById = new Map();
@@ -118,13 +118,13 @@ function validateOutput(result, originalTexts) {
       !originalById.has(item.id) ||
       translatedById.has(item.id)
     ) {
-      throw new Error("A Gemini retornou trechos inconsistentes.");
+      throw new Error("O modelo retornou trechos inconsistentes.");
     }
 
     const translated = item.text.trim();
 
     if (!translated && originalById.get(item.id).trim()) {
-      throw new Error("A Gemini retornou um trecho sem tradução.");
+      throw new Error("O modelo retornou um trecho sem tradução.");
     }
 
     translatedById.set(item.id, translated);
@@ -139,20 +139,24 @@ function validateOutput(result, originalTexts) {
 /**
  * Traduz trechos para português brasileiro em linguagem editorial.
  *
+ * Utiliza o OpenRouter como provedor de IA.
+ *
  * A função não altera banco de dados nem metadados da notícia.
  * Cada trecho mantém seu identificador original.
  */
 export async function translateTexts(texts, env = process.env) {
-  const apiKey = env.GEMINI_API_KEY;
+  const apiKey = env.OPENROUTER_API_KEY;
 
   if (!apiKey || typeof apiKey !== "string") {
-    throw new Error("A chave GEMINI_API_KEY não está configurada no servidor.");
+    throw new Error(
+      "A chave OPENROUTER_API_KEY não está configurada no servidor.",
+    );
   }
 
   const input = validateInput(texts);
-  const model = env.GEMINI_MODEL || DEFAULT_MODEL;
+  const model = env.OPENROUTER_MODEL || DEFAULT_MODEL;
 
-  const prompt = `
+  const systemPrompt = `
 Você é um tradutor e editor profissional especializado em notícias
 de anime, mangá, jogos e cultura pop japonesa.
 
@@ -179,46 +183,65 @@ REGRAS OBRIGATÓRIAS:
 11. Retorne exatamente os mesmos identificadores recebidos.
 12. Não adicione nem remova trechos.
 
-Retorne somente o JSON solicitado pelo formato de resposta.
+FORMATO DE RESPOSTA:
 
-TEXTOS:
-${JSON.stringify(input)}
+Retorne exclusivamente um objeto JSON válido, sem Markdown,
+sem cercas de código e sem comentários.
+
+A estrutura obrigatória é:
+
+{
+  "translations": [
+    {
+      "id": "identificador original",
+      "text": "texto traduzido"
+    }
+  ]
+}
+
+Não altere os identificadores.
 `.trim();
 
   let response;
 
   try {
-    response = await fetch(
-      `${API_URL}/${encodeURIComponent(model)}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: prompt }],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.25,
-            maxOutputTokens: 20000,
-            responseMimeType: "application/json",
-            responseSchema,
-          },
-        }),
-        signal: AbortSignal.timeout(90000),
+    response = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://visionnews-alpha.vercel.app",
+        "X-Title": "VisionNews",
       },
-    );
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: `Traduza os seguintes trechos:\n\n${JSON.stringify(input)}`,
+          },
+        ],
+        temperature: 0.2,
+        max_tokens: 20000,
+        response_format: {
+          type: "json_object",
+        },
+      }),
+      signal: AbortSignal.timeout(90000),
+    });
   } catch (error) {
-    if (error?.name === "TimeoutError" || error?.name === "AbortError") {
+    if (
+      error?.name === "TimeoutError" ||
+      error?.name === "AbortError"
+    ) {
       throw new Error("A tradução demorou demais. Tente novamente.");
     }
 
-    throw new Error("Não foi possível conectar à API da Gemini.");
+    throw new Error("Não foi possível conectar à API do OpenRouter.");
   }
 
   let data;
@@ -226,29 +249,42 @@ ${JSON.stringify(input)}
   try {
     data = await response.json();
   } catch {
-    throw new Error("A API da Gemini retornou uma resposta inválida.");
+    throw new Error("A API do OpenRouter retornou uma resposta inválida.");
   }
 
   if (!response.ok) {
-    const message = data?.error?.message || "";
+    const message =
+      data?.error?.message ||
+      data?.message ||
+      "";
 
     if (response.status === 401 || response.status === 403) {
-      throw new Error("A chave da Gemini é inválida ou não tem permissão.");
+      throw new Error(
+        "A chave do OpenRouter é inválida ou não tem permissão.",
+      );
+    }
+
+    if (response.status === 402) {
+      throw new Error(
+        "O OpenRouter informou que não há créditos suficientes para esta solicitação. Verifique se o modelo escolhido é gratuito.",
+      );
     }
 
     if (response.status === 429) {
       throw new Error(
-        "Limite de requisições da Gemini atingido. Aguarde e tente novamente.",
+        "Limite de requisições do OpenRouter atingido. Aguarde e tente novamente.",
       );
     }
 
     if (response.status >= 500) {
-      throw new Error("A API da Gemini está temporariamente indisponível.");
+      throw new Error(
+        "O serviço do OpenRouter está temporariamente indisponível.",
+      );
     }
 
     throw new Error(
       message
-        ? `Erro da Gemini (${response.status}): ${message.slice(0, 250)}`
+        ? `Erro do OpenRouter (${response.status}): ${message.slice(0, 250)}`
         : `Não foi possível traduzir. Código ${response.status}.`,
     );
   }

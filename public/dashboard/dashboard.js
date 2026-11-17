@@ -750,9 +750,12 @@ function renderList() {
     )
     .join("");
 }
+
 function updateBulkBar() {
   const visible = module === "news" || module === "reviews";
   $("bulkBar").hidden = !visible;
+
+  $("bulkTranslate").hidden = module !== "news";
 
   if (!visible) {
     bulkSelected.clear();
@@ -761,21 +764,169 @@ function updateBulkBar() {
   }
 
   const visibleIds = new Set(bulkVisible.map((item) => item.id));
-  for (const id of [...bulkSelected])
+
+  for (const id of [...bulkSelected]) {
     if (!visibleIds.has(id)) bulkSelected.delete(id);
+  }
 
   const total = bulkSelected.size;
+
   $("bulkPublish").disabled = busy || total === 0;
+
   $("bulkPublish").textContent = total
     ? `Publicar ${total} selecionado${total === 1 ? "" : "s"}`
     : "Publicar selecionados";
+
+  $("bulkTranslate").disabled =
+    busy || total === 0 || total > 5;
+
+  $("bulkTranslate").textContent = total
+    ? `Traduzir ${total} notícia${total === 1 ? "" : "s"}`
+    : "Traduzir notícias";
+
   $("bulkAll").checked =
     bulkVisible.length > 0 &&
     bulkVisible.every((item) => bulkSelected.has(item.id));
+
   $("bulkAll").indeterminate =
     !$("bulkAll").checked &&
     bulkVisible.some((item) => bulkSelected.has(item.id));
 }
+
+
+function renderTranslationBody(body, format) {
+  if (!body) return "<p>Conteúdo vazio.</p>";
+
+  if (format === "rich-v1") {
+    try {
+      const document = VisionContent.validate(
+        typeof body === "string" ? JSON.parse(body) : body,
+      );
+
+      return VisionContent.render(document);
+    } catch {
+      return "<p>Não foi possível renderizar este conteúdo.</p>";
+    }
+  }
+
+  return `<p>${esc(String(body)).replace(/\n/g, "<br>")}</p>`;
+}
+
+async function translateSelectedNews() {
+  if (busy || !ready) return;
+
+  if (dirty) {
+    $("globalStatus").textContent =
+      "Salve ou descarte as alterações abertas no editor antes de traduzir.";
+    return;
+  }
+
+  const ids = [...bulkSelected];
+
+  if (!ids.length) return;
+
+  if (ids.length > 5) {
+    $("bulkStatus").textContent =
+      "Selecione no máximo 5 notícias por tradução.";
+    return;
+  }
+
+  const selected = ids
+    .map((id) => news.find((item) => item.id === id))
+    .filter(Boolean);
+
+  if (selected.length !== ids.length) {
+    $("bulkStatus").textContent =
+      "Não foi possível localizar todas as notícias selecionadas. Atualize a lista.";
+    return;
+  }
+
+  const versions = Object.fromEntries(
+    selected.map((item) => [item.id, item.version]),
+  );
+
+  busy = true;
+  $("bulkTranslate").disabled = true;
+  $("bulkPublish").disabled = true;
+  $("bulkStatus").textContent =
+    "Traduzindo notícias com inteligência artificial…";
+
+  try {
+    const result = await api("/api/editor/news/translate-preview", {
+      method: "POST",
+      body: JSON.stringify({ ids, versions }),
+    });
+
+    const items = Array.isArray(result.items) ? result.items : [];
+window.translationPreviewItems = items;
+    if (!items.length) {
+      throw Error("O servidor não retornou nenhuma tradução.");
+    }
+
+    $("previewContent").innerHTML = `
+      <span class="tag">VISIONNEWS / TRADUÇÃO</span>
+      <h2>Revisão das traduções</h2>
+      <p>
+        Compare o conteúdo original com a versão traduzida.
+        Nenhuma alteração foi salva no banco de dados.
+      </p>
+
+      ${items.map((item) => `
+        <section class="translationPreviewItem"
+          style="border-top:1px solid var(--line);padding-top:22px;margin-top:22px">
+
+          <small>NOTÍCIA #${esc(item.id)}</small>
+
+          <h3>${esc(item.translated.title)}</h3>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px">
+
+            <div>
+              <span class="tag">ORIGINAL</span>
+              <h3>${esc(item.original.title)}</h3>
+              <p>${esc(item.original.summary || "")}</p>
+              <div class="formattedContent">
+                ${renderTranslationBody(item.original.body, item.body_format)}
+              </div>
+            </div>
+
+            <div>
+              <span class="tag">TRADUÇÃO</span>
+              <h3>${esc(item.translated.title)}</h3>
+              <p>${esc(item.translated.summary || "")}</p>
+              <div class="formattedContent">
+                ${renderTranslationBody(item.translated.body, item.body_format)}
+              </div>
+            </div>
+
+          </div>
+
+          <button
+            type="button"
+            class="primary"
+            data-translation-apply="${esc(item.id)}"
+          >
+            Revisar no editor
+          </button>
+
+        </section>
+      `).join("")}
+    `;
+
+    $("previewDialog").showModal();
+
+    $("bulkStatus").textContent =
+      `${items.length} tradução${items.length === 1 ? "" : "ões"} pronta${items.length === 1 ? "" : "s"} para revisão.`;
+
+  } catch (error) {
+    $("bulkStatus").textContent = error.message;
+  } finally {
+    busy = false;
+    renderList();
+  }
+}
+
+
 async function publishSelectedDrafts() {
   if (busy || !ready) return;
 
@@ -887,6 +1038,62 @@ $("bulkAll").onchange = () => {
   renderList();
 };
 $("bulkPublish").onclick = publishSelectedDrafts;
+
+$("bulkTranslate").onclick = translateSelectedNews;
+
+$("previewContent").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-translation-apply]");
+
+  if (!button) return;
+
+  const id = Number(button.dataset.translationApply);
+
+  // Recupera a tradução exibida na prévia.
+  const preview = window.translationPreviewItems?.find(
+    (item) => Number(item.id) === id,
+  );
+
+  if (!preview) {
+    $("bulkStatus").textContent =
+      "Não foi possível recuperar esta tradução. Gere uma nova prévia.";
+    return;
+  }
+
+  const original = news.find((item) => item.id === id);
+
+  if (!original || original.version !== preview.version) {
+    $("previewDialog").close();
+    $("bulkStatus").textContent =
+      "Esta notícia foi modificada. Gere uma nova tradução.";
+    return;
+  }
+
+  if (!allowLeave()) return;
+
+  $("previewDialog").close();
+
+  edit(original);
+
+  $("title").value = preview.translated.title || "";
+  $("summary").value = preview.translated.summary || "";
+  $("topic").value = preview.translated.topic || "";
+
+  VisionEditor.set(
+    preview.translated.body || "",
+    preview.body_format || "plain",
+  );
+
+  dirty = true;
+
+  $("editorStatus").textContent =
+    "Tradução aplicada ao editor. Revise o conteúdo e salve quando estiver pronto.";
+
+  $("editorForm").scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+  });
+});
+
 
 const seasonToday = todayInBrasilia().split("-").map(Number);
 $("seasonImportYear").value = seasonToday[0];

@@ -73,15 +73,29 @@
                 <option>Guias</option>
                 <option>Cultura</option>
               </select>
-              <div id="bulkBar" class="bulkBar" hidden>
-                <label class="bulkSelectAll"
-                  ><input type="checkbox" id="bulkAll" /> Selecionar
-                  rascunhos</label
-                ><button type="button" id="bulkPublish" disabled>
-                  Publicar selecionados</button
-                >
-                <span id="bulkStatus" role="status" aria-live="polite"></span>
-              </div>
+            
+<div id="bulkBar" class="bulkBar" hidden>
+  <label class="bulkSelectAll">
+    <input type="checkbox" id="bulkAll" />
+    Selecionar rascunhos
+  </label>
+
+  <button type="button" id="bulkPublish" disabled>
+    Publicar selecionados
+  </button>
+
+  <button
+    type="button"
+    id="bulkTranslate"
+    class="outlineButton"
+    disabled
+  >
+    Traduzir notícias
+  </button>
+
+  <span id="bulkStatus" role="status" aria-live="polite"></span>
+</div>
+
               <div id="newsList" aria-live="polite"></div>
             </section>
             <section class="editorPanel">

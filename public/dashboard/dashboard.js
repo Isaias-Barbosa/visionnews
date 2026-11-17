@@ -36,7 +36,9 @@ let news = [],
   ready = false,
   module = "news",
   pendingRss = null,
-  rssWorkspace = null;
+  rssWorkspace = null,
+  bulkSelected = new Set(),
+  bulkVisible = [];
 const names = {
     draft: "Rascunho",
     published: "Publicado",
@@ -189,7 +191,7 @@ function rssPrefill(item, feed) {
     body_format: "plain",
     category: "Notícias",
     author: "Redação VisionNews",
-    cover: VisionContent.https(item?.image_url) || "",
+    cover: VisionContent.https(item?.image_url || item?.image) || "",
     source_url: VisionContent.https(item?.link) || "",
     source_label: feedName,
     status: "draft",
@@ -315,6 +317,7 @@ function importRssItem(item, feed) {
 
   module = "news";
   current = null;
+  bulkSelected.clear();
 
   $("rssPanel").hidden = true;
   $("globalStatus").hidden = false;
@@ -348,6 +351,7 @@ function switchModule(next) {
   dirty = false;
   current = null;
   pendingRss = null;
+  bulkSelected.clear();
 
   const isRss = next === 'rss';
 
@@ -408,12 +412,18 @@ function renderList() {
         .toLowerCase()
         .includes(term),
   );
+  const selectable = module === "news" || module === "reviews";
   $("newsList").innerHTML = rows.length
     ? rows
-        .map(
-          (a) =>
-            `<button class="newsItem ${current?.id === a.id ? "current" : ""}" data-edit="${a.id}"><span class="statusPill ${a.status}">${names[a.status]}</span>${a.featured && a.status === "published" && featuredDecision()?.id === a.id ? ' <span class="statusPill published">★ Principal</span>' : ""}<h3>${esc(a.title)}</h3><small>${module === "schedule" ? esc(dayNames[a.weekday] + " · " + (a.time || "Horário a confirmar") + " · " + a.platform) : module === "recommendations" ? esc(a.feature_date.split("-").reverse().join("/")) : esc([a.category, a.topic, a.author].filter(Boolean).join(" · "))}</small></button>`,
-        )
+        .map((a) => {
+          const card = `<button class="newsItem ${current?.id === a.id ? "current" : ""}" data-edit="${a.id}"><span class="statusPill ${a.status}">${names[a.status]}</span>${a.featured && a.status === "published" && featuredDecision()?.id === a.id ? ' <span class="statusPill published">★ Principal</span>' : ""}<h3>${esc(a.title)}</h3><small>${module === "schedule" ? esc(dayNames[a.weekday] + " · " + (a.time || "Horário a confirmar") + " · " + a.platform) : module === "recommendations" ? esc(a.feature_date.split("-").reverse().join("/")) : esc([a.category, a.topic, a.author].filter(Boolean).join(" · "))}</small></button>`;
+          if (!selectable) return card;
+          const check =
+            a.status === "draft"
+              ? `<input type="checkbox" class="bulkCheck" data-bulk="${a.id}" aria-label="Selecionar ${esc(a.title)}"${bulkSelected.has(a.id) ? " checked" : ""}>`
+              : '<span class="bulkCheckPlaceholder" aria-hidden="true"></span>';
+          return `<div class="newsRow">${check}${card}</div>`;
+        })
         .join("")
     : '<p class="emptyList">Nenhum item encontrado. Crie um conteúdo ou ajuste os filtros.</p>';
   $("newsList")
@@ -423,12 +433,121 @@ function renderList() {
         (b.onclick = () =>
           edit(list.find((a) => a.id === Number(b.dataset.edit)))),
     );
+  $("newsList")
+    .querySelectorAll("[data-bulk]")
+    .forEach((box) => {
+      box.onchange = () => {
+        const id = Number(box.dataset.bulk);
+        if (box.checked) bulkSelected.add(id);
+        else bulkSelected.delete(id);
+        updateBulkBar();
+      };
+    });
+  bulkVisible = selectable
+    ? rows.filter((a) => a.status === "draft")
+    : [];
+  updateBulkBar();
   $("stats").innerHTML = ["draft", "published", "archived"]
     .map(
       (s) =>
         `<div><strong>${list.filter((a) => a.status === s).length}</strong><span>${s === "draft" ? "Rascunhos" : s === "published" ? "Publicados" : "Arquivados"}</span></div>`,
     )
     .join("");
+}
+function updateBulkBar() {
+  const visible = module === "news" || module === "reviews";
+  $("bulkBar").hidden = !visible;
+
+  if (!visible) {
+    bulkSelected.clear();
+    $("bulkStatus").textContent = "";
+    return;
+  }
+
+  const visibleIds = new Set(bulkVisible.map((item) => item.id));
+  for (const id of [...bulkSelected])
+    if (!visibleIds.has(id)) bulkSelected.delete(id);
+
+  const total = bulkSelected.size;
+  $("bulkPublish").disabled = busy || total === 0;
+  $("bulkPublish").textContent = total
+    ? `Publicar ${total} selecionado${total === 1 ? "" : "s"}`
+    : "Publicar selecionados";
+  $("bulkAll").checked =
+    bulkVisible.length > 0 &&
+    bulkVisible.every((item) => bulkSelected.has(item.id));
+  $("bulkAll").indeterminate =
+    !$("bulkAll").checked &&
+    bulkVisible.some((item) => bulkSelected.has(item.id));
+}
+async function publishSelectedDrafts() {
+  if (busy || !ready) return;
+
+  if (dirty) {
+    $("globalStatus").textContent =
+      "Salve ou descarte as alterações abertas no editor antes de publicar em lote.";
+    return;
+  }
+
+  const ids = [...bulkSelected];
+
+  if (!ids.length) return;
+
+  const count = ids.length;
+  const confirmed = confirm(
+    `Publicar ${count} rascunho${count === 1 ? "" : "s"} agora? ` +
+      "O conteúdo ficará visível no portal imediatamente.",
+  );
+
+  if (!confirmed) return;
+
+  const openId = current?.id;
+  busy = true;
+  $("bulkPublish").disabled = true;
+  $("bulkStatus").textContent = "Publicando…";
+
+  try {
+    const result = await api("/api/editor/news/bulk-publish", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+    const published = result.published || [];
+    const skipped = result.skipped || [];
+
+    bulkSelected.clear();
+    dirty = false;
+    await load();
+    busy = false;
+
+    if (openId)
+      edit(
+        moduleItems().find((item) => item.id === openId) || null,
+        null,
+        true,
+      );
+
+    $("globalStatus").textContent = `${published.length} rascunho${
+      published.length === 1 ? "" : "s"
+    } publicado${published.length === 1 ? "" : "s"}.${
+      skipped.length
+        ? ` ${skipped.length} não publicado${skipped.length === 1 ? "" : "s"}: ` +
+          skipped
+            .slice(0, 3)
+            .map(
+              (item) =>
+                `${item.title || "#" + item.id} (${String(item.reason || "").slice(0, 140)})`,
+            )
+            .join("; ") +
+          (skipped.length > 3 ? "…" : "")
+        : ""
+    }`;
+  } catch (error) {
+    $("globalStatus").textContent = error.message;
+  } finally {
+    busy = false;
+    $("bulkStatus").textContent = "";
+    renderList();
+  }
 }
 async function load() {
   try {
@@ -464,6 +583,14 @@ document.querySelectorAll("[data-module]").forEach((b) => {
 $("adminSearch").oninput = renderList;
 $("statusFilter").onchange = renderList;
 $("categoryFilter").onchange = renderList;
+$("bulkAll").onchange = () => {
+  for (const item of bulkVisible) {
+    if ($("bulkAll").checked) bulkSelected.add(item.id);
+    else bulkSelected.delete(item.id);
+  }
+  renderList();
+};
+$("bulkPublish").onclick = publishSelectedDrafts;
 $("status").onchange = buttonLabel;
 $("category").onchange = reviewVisibility;
 $("cover").addEventListener("input", coverPreview);

@@ -228,7 +228,7 @@ async function rssTouchFeed(DB, feedId, result) {
     .run();
 }
 
-function rssDraftInput(item, feed) {
+export function rssDraftInput(item, feed) {
   const rawTitle = String(item.title || "").trim().slice(0, 160);
   const title =
     rawTitle.length >= 5 ? rawTitle : `${rawTitle} — notícia RSS`.slice(0, 160);
@@ -256,7 +256,9 @@ function rssDraftInput(item, feed) {
     body,
     category: "Notícias",
     author: author.length >= 2 ? author : "Redação VisionNews",
-    cover: VisionContent.https(item.image_url) || "",
+    // Itens recém-lidos do feed usam `image`; itens já persistidos usam
+    // `image_url`. Os dois formatos precisam preencher a capa do rascunho.
+    cover: VisionContent.https(item.image_url || item.image) || "",
     source_url: VisionContent.https(item.link) || "",
     source_label: String(feed.name || "Fonte RSS").slice(0, 120),
     status: "draft",
@@ -366,6 +368,42 @@ async function rssAutoImportNewItems(DB, feed, items) {
   return imported;
 }
 
+// Rascunhos criados antes da correção da extração de imagens ficaram sem capa.
+// Ao atualizar o feed, preenchemos somente as capas vazias dos rascunhos
+// vinculados a itens daquela fonte, sem sobrescrever escolhas editoriais.
+async function rssSyncDraftCovers(DB, feedId) {
+  const result = await DB.prepare(
+    `
+    UPDATE news
+    SET cover=(
+          SELECT i.image_url
+          FROM rss_items i
+          WHERE i.imported_news_id=news.id
+            AND i.image_url IS NOT NULL
+            AND i.image_url<>''
+          ORDER BY i.id DESC
+          LIMIT 1
+        ),
+        updated_at=?
+    WHERE status='draft'
+      AND (cover IS NULL OR cover='')
+      AND EXISTS (
+        SELECT 1
+        FROM rss_items i
+        INNER JOIN rss_feeds f ON f.id=i.feed_id
+        WHERE i.imported_news_id=news.id
+          AND f.id=?
+          AND i.image_url IS NOT NULL
+          AND i.image_url<>''
+      )
+  `,
+  )
+    .bind(rssNow(), feedId)
+    .run();
+
+  return Number(result?.meta?.changes || 0);
+}
+
 async function refreshRssFeed(DB, feedId, prefetched = null) {
   const feed = await DB.prepare("SELECT * FROM rss_feeds WHERE id=?")
     .bind(feedId)
@@ -393,6 +431,7 @@ async function refreshRssFeed(DB, feedId, prefetched = null) {
       feed,
       persisted.insertedItems,
     );
+    const coversUpdated = await rssSyncDraftCovers(DB, feedId);
 
     return {
       ok: true,
@@ -403,6 +442,7 @@ async function refreshRssFeed(DB, feedId, prefetched = null) {
       inserted: persisted.inserted,
       updated: persisted.updated,
       autoImported,
+      coversUpdated,
       fetchedAt: result.fetchedAt || rssNow(),
     };
   } catch (error) {
@@ -1141,6 +1181,7 @@ export async function handle(request, env) {
         let inserted = 0;
         let updated = 0;
         let autoImported = 0;
+        let coversUpdated = 0;
 
         // Atualização sequencial para não sobrecarregar as fontes.
         for (const feed of feeds) {
@@ -1150,6 +1191,7 @@ export async function handle(request, env) {
             inserted += result.inserted || 0;
             updated += result.updated || 0;
             autoImported += result.autoImported || 0;
+            coversUpdated += result.coversUpdated || 0;
           }
 
           results.push({
@@ -1163,6 +1205,7 @@ export async function handle(request, env) {
           inserted,
           updated,
           autoImported,
+          coversUpdated,
           failures: results.filter((result) => result.error).length,
           results,
         });
@@ -1437,6 +1480,149 @@ export async function handle(request, env) {
         }
         return json({ ok: true });
       }
+      // Publicação em lote de rascunhos. Cada item passa pela mesma validação
+      // do editor; itens inválidos são informados e não são publicados.
+      if (
+        path === "/api/editor/news/bulk-publish" &&
+        request.method === "POST"
+      ) {
+        let input;
+        try {
+          input = await bodyJson(request);
+        } catch {
+          return json({ error: "Conteúdo inválido ou grande demais." }, 400);
+        }
+
+        const requested = Array.isArray(input.ids) ? input.ids : [];
+        const ids = [
+          ...new Set(
+            requested
+              .map((value) => Number(value))
+              .filter((value) => Number.isSafeInteger(value) && value > 0),
+          ),
+        ].slice(0, 100);
+
+        if (!ids.length) {
+          return json(
+            { error: "Selecione ao menos um rascunho para publicar." },
+            422,
+          );
+        }
+
+        const now = new Date().toISOString();
+        const published = [];
+        const skipped = [];
+        const placeholders = ids.map(() => "?").join(",");
+
+        // Uma leitura para todos os itens e outra para as capas do radar RSS,
+        // evitando muitas idas ao banco em publicações maiores.
+        const { results: rows } = await env.DB.prepare(
+          `SELECT * FROM news WHERE id IN (${placeholders})`,
+        )
+          .bind(...ids)
+          .all();
+        const byId = new Map(rows.map((row) => [Number(row.id), row]));
+
+        const { results: covers } = await env.DB.prepare(
+          `
+          SELECT imported_news_id, image_url
+          FROM rss_items
+          WHERE imported_news_id IN (${placeholders})
+            AND image_url IS NOT NULL
+            AND image_url<>''
+          ORDER BY id
+        `,
+        )
+          .bind(...ids)
+          .all();
+        const coverById = new Map(
+          covers.map((item) => [Number(item.imported_news_id), item.image_url]),
+        );
+
+        for (const id of ids) {
+          const existing = byId.get(id);
+
+          if (!existing) {
+            skipped.push({
+              id,
+              title: "",
+              reason: "Item não encontrado.",
+            });
+            continue;
+          }
+
+          if (existing.status !== "draft") {
+            skipped.push({
+              id,
+              title: existing.title,
+              reason:
+                existing.status === "published"
+                  ? "Já está publicado."
+                  : "Não é um rascunho.",
+            });
+            continue;
+          }
+
+          const cover = existing.cover || coverById.get(id) || "";
+
+          const { errors, value } = validateNews({
+            ...existing,
+            cover,
+            status: "published",
+          });
+
+          if (errors.length) {
+            skipped.push({
+              id,
+              title: existing.title,
+              reason: errors.join(" "),
+            });
+            continue;
+          }
+
+          const isNews = value.category === "Notícias";
+          const marked = isNews && existing.featured === 1;
+          const featuredAt = marked
+            ? existing.featured_at || now
+            : existing.featured_at || null;
+          const newsOnce =
+            existing.news_published_once === 1 || isNews ? 1 : 0;
+
+          await env.DB.prepare(
+            `
+            UPDATE news
+            SET status='published',
+                cover=?,
+                featured=?,
+                featured_at=?,
+                news_published_once=?,
+                published_at=COALESCE(published_at, ?),
+                updated_at=?,
+                version=version+1
+            WHERE id=?
+          `,
+          )
+            .bind(
+              cover,
+              marked ? 1 : 0,
+              featuredAt,
+              newsOnce,
+              now,
+              now,
+              id,
+            )
+            .run();
+
+          published.push({
+            id,
+            title: value.title,
+            cover,
+          });
+        }
+
+        return json({ ok: true, published, skipped });
+      }
+
       const match = path.match(
         /^\/api\/(?:admin|editor)\/(news|schedule|recommendations)(?:\/([1-9]\d*))?$/,
       );

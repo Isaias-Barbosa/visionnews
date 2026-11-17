@@ -43,3 +43,48 @@
 #editorForm .linkFields input { width:auto; flex:1 1 180px; }
 .linkFields button { background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:8px; }
 #editorLinkError { color:#f4c2b4; }
+
+/* Publicação em lote dos rascunhos */
+.bulkBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  margin: 10px 0;
+  background: #ffffff05;
+}
+.bulkBar[hidden] { display: none !important; }
+.bulkSelectAll {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.adminBody .bulkCheck,
+.adminBody .bulkSelectAll input {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--lime);
+  cursor: pointer;
+}
+.bulkBar button {
+  width: auto;
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 11px;
+}
+.bulkBar button:disabled { opacity: .45; cursor: not-allowed; }
+#bulkStatus { font-size: 10px; color: var(--muted); }
+.newsRow { display: flex; align-items: flex-start; }
+.newsRow .newsItem { flex: 1 1 auto; min-width: 0; }
+.adminBody .newsRow .bulkCheck { margin: 22px 0 0 14px; flex: none; }
+.bulkCheckPlaceholder { width: 30px; flex: none; }

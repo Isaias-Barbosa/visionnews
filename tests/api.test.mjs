@@ -1,4 +1,4 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';import {readFileSync} from 'node:fs';import worker,{canAdmin,validateNews,validateSchedule} from '../dist/server/index.js';
+import test from 'node:test';import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';import {readFileSync} from 'node:fs';import worker,{canAdmin,rssDraftInput,validateNews,validateSchedule} from '../dist/server/index.js';
 const db=new DatabaseSync(':memory:');
 db.exec(readFileSync('drizzle/0000_news.sql','utf8').replace(/^\uFEFF/,''));
 db.exec(readFileSync('drizzle/0001_editor_reviews_schedule.sql','utf8').replace(/^\uFEFF/,''));
@@ -219,4 +219,55 @@ test('RSS radar lists sources, filters items and imports drafts without bypassin
  db.exec('DELETE FROM rss_items');
  db.exec('DELETE FROM rss_feeds');
  db.exec('DELETE FROM news');
+});
+
+test('RSS drafts keep the feed cover and can be published in bulk', async () => {
+  const feed = { name: 'Feed Capa' };
+  const rawItem = {
+    title: 'Notícia com imagem do feed',
+    summary: 'Resumo do item RSS para o rascunho editorial.',
+    content: 'Conteúdo completo do item RSS para validar o rascunho editorial.',
+  };
+
+  // O parser entrega `image`; o banco entrega `image_url`. Ambos viram capa.
+  assert.equal(rssDraftInput({ ...rawItem, image: 'https://cdn.example.com/capa.jpg' }, feed).cover, 'https://cdn.example.com/capa.jpg');
+  assert.equal(rssDraftInput({ ...rawItem, image_url: 'https://cdn.example.com/capa-2.jpg' }, feed).cover, 'https://cdn.example.com/capa-2.jpg');
+
+  const now = new Date().toISOString();
+  const feedRow = db.prepare('INSERT INTO rss_feeds (name,feed_url,site_url,is_active,auto_import,created_at,updated_at) VALUES (?,?,?,?,?,?,?)').run('Feed Capa','https://feeds.example.com/cover.xml','https://anime.example.com/',1,0,now,now);
+  const feedId = Number(feedRow.lastInsertRowid);
+
+  let response = await worker.fetch(request('/api/editor/news','POST',{...sample,title:'Rascunho com capa vinda do RSS',cover:''}),env);
+  assert.equal(response.status,201);
+  const coverDraft = (await response.json()).item;
+
+  response = await worker.fetch(request('/api/editor/news','POST',{...sample,title:'Rascunho sem fonte para publicar',source_url:''}),env);
+  assert.equal(response.status,201);
+  const invalidDraft = (await response.json()).item;
+
+  db.prepare('INSERT INTO rss_items (feed_id,item_key,guid,link,title,summary,content,image_url,author,published_at,created_at,imported_at,imported_news_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(feedId,'cover-key','cover-guid','https://anime.example.com/capa','Rascunho com capa vinda do RSS','Resumo do item RSS para o rascunho editorial.','Conteúdo completo do item RSS para validar o rascunho editorial.','https://cdn.example.com/rss-cover.jpg','Redação',now,now,now,coverDraft.id);
+
+  assert.equal((await worker.fetch(request('/api/editor/news/bulk-publish','POST',{ids:[]}),env)).status,422);
+
+  response = await worker.fetch(request('/api/editor/news/bulk-publish','POST',{ids:[coverDraft.id,invalidDraft.id,999999,coverDraft.id]}),env);
+  assert.equal(response.status,200);
+  const result = await response.json();
+  assert.equal(result.published.length,1);
+  assert.equal(result.published[0].id,coverDraft.id);
+  assert.equal(result.published[0].cover,'https://cdn.example.com/rss-cover.jpg');
+  assert.equal(result.skipped.length,2);
+  assert(result.skipped.some(item => item.id === invalidDraft.id && item.reason.includes('fonte')));
+  assert(result.skipped.some(item => item.id === 999999));
+
+  const publicList = await (await worker.fetch(request('/api/news'),env)).json();
+  assert(publicList.items.some(item => item.id === coverDraft.id && item.cover === 'https://cdn.example.com/rss-cover.jpg'));
+  assert(!publicList.items.some(item => item.id === invalidDraft.id));
+
+  const again = await (await worker.fetch(request('/api/editor/news/bulk-publish','POST',{ids:[coverDraft.id]}),env)).json();
+  assert.equal(again.published.length,0);
+  assert.equal(again.skipped[0].reason,'Já está publicado.');
+
+  db.exec('DELETE FROM rss_items');
+  db.exec('DELETE FROM rss_feeds');
+  db.exec('DELETE FROM news');
 });

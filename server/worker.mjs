@@ -1140,15 +1140,14 @@ if (
       );
     }
 
-    if (!env.GEMINI_API_KEY) {
-      return json(
-        {
-          error: "A chave da API Gemini não está configurada no servidor.",
-        },
-        503,
-      );
-    }
-
+    if (!env.OPENROUTER_API_KEY) {
+  return json(
+    {
+      error: "A chave OPENROUTER_API_KEY não está configurada no servidor.",
+    },
+    503,
+  );
+}
     // A tradução acontece somente em memória.
     const translations = await translateTexts(allTexts, env);
 

@@ -2,6 +2,10 @@ import { readdir, readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { createPool } from '../server/postgres.mjs';
 
+// A ordenação lexical simples colocaria 1000_* antes de 999_*.
+// O collator numérico mantém 999_* antes de 1000_*.
+const migrationOrder = new Intl.Collator('en', { numeric: true });
+
 export async function migrate(pool = createPool()) {
  try {
   const client = await pool.connect();
@@ -12,7 +16,9 @@ export async function migrate(pool = createPool()) {
    const {rows} = await client.query('SELECT name FROM visionnews_migrations');
    const applied = new Set(rows.map(row=>row.name));
    const directory = new URL('../postgres/', import.meta.url);
-   for (const name of (await readdir(directory)).filter(name=>name.endsWith('.sql')).sort()) {
+   for (const name of (await readdir(directory))
+    .filter(name=>name.endsWith('.sql'))
+    .sort(migrationOrder.compare)) {
     if (applied.has(name)) continue;
     await client.query(await readFile(new URL(name,directory),'utf8'));
     await client.query('INSERT INTO visionnews_migrations (name) VALUES ($1)',[name]);

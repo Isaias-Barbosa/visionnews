@@ -58,36 +58,47 @@ function firstValue(object, keys) {
   return '';
 }
 
-function cleanText(value, maxLength = 100000) {
+function decodeEntities(value) {
   return String(value || '')
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<[^>]*>/g, ' ')
     .replace(/&#(\d+);/g, (_, code) => {
       const number = Number(code);
-      return number > 0 && number <= 0x10FFFF
+      return number > 0 && number <= 0x10ffff
         ? String.fromCodePoint(number)
         : '';
     })
     .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
       const number = parseInt(code, 16);
-      return number > 0 && number <= 0x10FFFF
+      return number > 0 && number <= 0x10ffff
         ? String.fromCodePoint(number)
         : '';
     })
     .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
     .replace(/&quot;/gi, '"')
     .replace(/&apos;/gi, "'")
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&');
+}
+
+function stripTags(value) {
+  return String(value || '')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]*>/g, ' ');
+}
+
+function cleanText(value, maxLength = 100000) {
+  // Alguns feeds Atom entregam HTML escapado (&lt;p&gt;...). Removemos as
+  // tags uma vez antes e outra depois de decodificar as entidades, de modo
+  // que nem a marcação literal nem a escapada cheguem ao texto editorial.
+  return stripTags(decodeEntities(stripTags(value)))
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, maxLength);
 }
 
-function extractImage(value) {
+function extractImage(value, baseUrl = '') {
   const html = getValue(value);
 
   const match = html.match(
@@ -96,14 +107,7 @@ function extractImage(value) {
 
   if (!match) return '';
 
-  try {
-    const url = new URL(match[1]);
-    return ['http:', 'https:'].includes(url.protocol)
-      ? url.href
-      : '';
-  } catch {
-    return '';
-  }
+  return normalizeUrl(match[1], baseUrl);
 }
 
 function normalizeUrl(value, baseUrl = '') {
@@ -353,10 +357,10 @@ function getImage(item, baseUrl) {
     enclosure?.['@_url'],
     media?.['@_url'],
     item.image?.url,
-    extractImage(item['content:encoded']),
-    extractImage(item.description),
-    extractImage(item.content),
-    extractImage(item.summary)
+    extractImage(item['content:encoded'], baseUrl),
+    extractImage(item.description, baseUrl),
+    extractImage(item.content, baseUrl),
+    extractImage(item.summary, baseUrl)
   ];
 
   for (const candidate of candidates) {

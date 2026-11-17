@@ -34,7 +34,9 @@ let news = [],
   dirty = false,
   busy = false,
   ready = false,
-  module = "news";
+  module = "news",
+  pendingRss = null,
+  rssWorkspace = null;
 const names = {
     draft: "Rascunho",
     published: "Publicado",
@@ -147,8 +149,62 @@ function coverPreview() {
     $("coverImage").src = url;
   }, 250);
 }
-function edit(item) {
-  if (!ready || busy || !allowLeave()) return;
+function showRssNote(pending) {
+  const note = $("rssNote");
+
+  if (!pending) {
+    note.hidden = true;
+    note.innerHTML = "";
+    return;
+  }
+
+  note.hidden = false;
+  note.innerHTML = `<strong>Importação RSS:</strong> ${esc(pending.title)}${
+    pending.feedName ? " · " + esc(pending.feedName) : ""
+  }. Revise o texto, confira a fonte e salve. O item será marcado como cadastrado depois que este rascunho for salvo.`;
+}
+
+function rssPrefill(item, feed) {
+  const feedName = String(
+    feed?.name || item?.feed_name || "Fonte RSS",
+  ).slice(0, 120);
+  const rawTitle = String(item?.title || "").trim();
+  const title = (rawTitle || "Notícia recebida via RSS").slice(0, 160);
+  let summary = String(item?.summary || item?.content || "").trim();
+
+  if (summary.length > 350) summary = `${summary.slice(0, 347).trimEnd()}...`;
+  if (summary.length < 15) {
+    summary = `${title} — matéria recebida de ${feedName}.`.slice(0, 350);
+  }
+
+  let body = String(item?.content || item?.summary || "").trim().slice(0, 50000);
+  if (body.length < 40) {
+    body = `${body}\n\nNotícia recebida de ${feedName}. Revise, complemente e confira a fonte antes de publicar.`.trim();
+  }
+
+  return {
+    title,
+    summary,
+    body,
+    body_format: "plain",
+    category: "Notícias",
+    author: "Redação VisionNews",
+    cover: VisionContent.https(item?.image_url) || "",
+    source_url: VisionContent.https(item?.link) || "",
+    source_label: feedName,
+    status: "draft",
+    featured: false,
+    review_score: "",
+  };
+}
+
+function edit(item, prefill = null, force = false) {
+  if (!ready || busy || (!force && !allowLeave())) return;
+
+  // Ao abrir uma matéria existente (ou uma matéria nova manual), o vínculo
+  // pendente com o radar RSS deixa de valer.
+  if (item || !prefill) pendingRss = null;
+
   current = item ? { ...item } : null;
   $("editorEmpty").hidden = true;
   const calendar = module === "schedule",
@@ -192,27 +248,33 @@ function edit(item) {
     $("scheduleStatus").textContent = "";
     $("schedule_title").focus();
   } else {
+    const source = item || prefill;
+
     for (const f of fields)
       $(f).value =
-        item?.[f] ??
+        source?.[f] ??
         {
           category: module === "reviews" ? "Reviews" : "Notícias",
           author: "Redação VisionNews",
           status: "draft",
         }[f] ??
         "";
-    $("review_score").value = item?.review_score ?? "";
+    $("review_score").value = source?.review_score ?? "";
     $("featured").checked = Boolean(
-      item?.featured &&
-      (!item.featured_at || featuredDecision()?.id === item.id),
+      source?.featured &&
+      (!source.featured_at || featuredDecision()?.id === source.id),
     );
-    VisionEditor.set(item?.body || "", item?.body_format || "plain");
+    VisionEditor.set(source?.body || "", source?.body_format || "plain");
     $("editorMode").textContent = item
       ? "EDITANDO / #" + item.id
-      : module === "reviews"
-        ? "NOVA REVIEW"
-        : "NOVO CONTEÚDO";
+      : prefill
+        ? "NOVA NOTÍCIA / RADAR RSS" +
+          (pendingRss ? " #" + pendingRss.id : "")
+        : module === "reviews"
+          ? "NOVA REVIEW"
+          : "NOVO CONTEÚDO";
     $("editorStatus").textContent = "";
+    showRssNote(prefill ? pendingRss : null);
     reviewVisibility();
     buttonLabel();
     coverPreview();
@@ -222,12 +284,70 @@ function edit(item) {
   renderList();
 }
 
+function mountRssWorkspace() {
+  if (rssWorkspace) return rssWorkspace;
+
+  if (!window.VisionRss) {
+    $("rssWorkspace").innerHTML =
+      '<p class="emptyList">O radar RSS não pôde ser carregado. Recarregue a página.</p>';
+    return null;
+  }
+
+  rssWorkspace = window.VisionRss.mount($("rssWorkspace"), {
+    mode: "dashboard",
+    title: "Radar de notícias",
+    subtitle:
+      "Gerencie as fontes, filtre as últimas notícias e envie uma matéria para os campos do editor.",
+    onImport: (item, feed) => importRssItem(item, feed),
+  });
+
+  return rssWorkspace;
+}
+
+function importRssItem(item, feed) {
+  if (!item || busy || !ready || !allowLeave()) return;
+
+  pendingRss = {
+    id: Number(item.id),
+    title: item.title || "Notícia RSS",
+    feedName: feed?.name || item.feed_name || "Fonte RSS",
+  };
+
+  module = "news";
+  current = null;
+
+  $("rssPanel").hidden = true;
+  $("globalStatus").hidden = false;
+  $("stats").hidden = false;
+  document.querySelector(".adminWorkspace").hidden = false;
+  $("newArticle").hidden = false;
+  $("editorEmpty").hidden = true;
+  $("categoryFilter").hidden = false;
+
+  document.querySelectorAll("[data-module]").forEach((button) => {
+    const selected = button.dataset.module === "news";
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+
+  edit(null, rssPrefill(item, feed), true);
+
+  if (pendingRss) {
+    $("editorStatus").textContent =
+      "Notícia importada do RSS. Revise os campos e salve o rascunho.";
+    $("editorForm").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
 function switchModule(next) {
   if (busy || !allowLeave()) return;
+
+  if (next !== "rss" && rssWorkspace) rssWorkspace.close();
 
   module = next;
   dirty = false;
   current = null;
+  pendingRss = null;
 
   const isRss = next === 'rss';
 
@@ -252,8 +372,11 @@ function switchModule(next) {
     button.setAttribute('aria-pressed', String(selected));
   });
 
-  // Se for RSS, não executa a renderização editorial
-  if (isRss) return;
+  // No módulo RSS, o componente compartilhado cuida de todo o painel.
+  if (isRss) {
+    mountRssWorkspace();
+    return;
+  }
 
   // Configura a área editorial selecionada
   $('editorEmpty').hidden = false;
@@ -329,7 +452,11 @@ async function load() {
   }
 }
 $("newArticle").disabled = true;
-$("newArticle").onclick = () => edit(null);
+$("newArticle").onclick = () => {
+  pendingRss = null;
+  showRssNote(null);
+  edit(null);
+};
 document.querySelectorAll("[data-module]").forEach((b) => {
   b.setAttribute("aria-pressed", String(b.dataset.module === module));
   b.onclick = () => switchModule(b.dataset.module);
@@ -414,6 +541,26 @@ async function save(event, calendar) {
           : "Rascunho salvo no servidor.";
     await load();
     renderList();
+
+    if (!calendar && pendingRss) {
+      const rssItem = pendingRss;
+      pendingRss = null;
+      showRssNote(null);
+
+      try {
+        await api(`/api/editor/rss-items/${rssItem.id}/imported`, {
+          method: "POST",
+          body: JSON.stringify({ news_id: item.id }),
+        });
+        feedback.textContent += " Item RSS marcado como cadastrado.";
+      } catch (error) {
+        feedback.textContent +=
+          " O rascunho foi salvo, mas não foi possível marcar o item RSS: " +
+          error.message;
+      }
+
+      if (rssWorkspace) rssWorkspace.refresh();
+    }
   } catch (error) {
     feedback.textContent = error.message;
   } finally {
@@ -446,7 +593,27 @@ window.addEventListener("beforeunload", (event) => {
     event.returnValue = "";
   }
 });
-load();
+const initialRssItem = Number(
+  new URLSearchParams(location.search).get("rssItem"),
+);
+
+load().then((connected) => {
+  if (
+    !connected ||
+    !Number.isSafeInteger(initialRssItem) ||
+    initialRssItem < 1
+  )
+    return;
+
+  api("/api/editor/rss-items/" + initialRssItem)
+    .then(({ item }) => {
+      importRssItem(item, { name: item.feed_name || "Fonte RSS" });
+      history.replaceState(null, "", "/dashboard");
+    })
+    .catch((error) => {
+      $("globalStatus").textContent = error.message;
+    });
+});
 
 api("/api/admin/session")
   .then(() => {
@@ -498,4 +665,16 @@ $("recommendationForm").onsubmit = async (event) => {
     button.disabled = false;
     $("newArticle").disabled = false;
   }
+};
+
+// Superfície pública usada pelo adaptador /dashboard/rss.js e por outros
+// módulos que queiram enviar um item RSS para o editor.
+window.VisionDashboard = {
+  importRssItem,
+  openRss() {
+    switchModule("rss");
+  },
+  refreshRss() {
+    return rssWorkspace ? rssWorkspace.refresh() : Promise.resolve();
+  },
 };

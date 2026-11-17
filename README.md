@@ -18,6 +18,14 @@ Na aba **Calendário de animes**, crie exibições com título, dia, horário de
 
 Na aba **Recomendação do dia**, escolha a data, informe o anime, explique por que assistir e adicione até cinco links oficiais de streaming no Brasil. A capa é opcional. Apenas uma indicação pode ser cadastrada por data. Ao salvar como publicada, a home passa a exibi-la na data escolhida pelo horário de Brasília. Sem indicação publicada para hoje, a home aponta para a área de descoberta. A seleção é manual e não requer um cron.
 
+## Radar de notícias RSS
+
+A página **Notícias RSS** em `/rss` (e a aba **Importação RSS** do dashboard) reúne as últimas notícias de várias fontes RSS/Atom. Cadastre uma fonte com nome e URL; o servidor consulta o feed, recusa destinos privados e importa os itens para revisão editorial. A lista pode ser filtrada por fonte e por situação, além de ter busca e paginação.
+
+Ao abrir uma notícia, a ação **Cadastrar notícia** envia o título, o resumo, o texto, a imagem e o link para os campos do editor como rascunho. O item RSS só é marcado como cadastrado depois que o rascunho é salvo, preservando o fluxo de revisão. A opção **Ligar auto** cria rascunhos automaticamente para novos itens de uma fonte, mas a publicação continua manual.
+
+A API editorial fica em `/api/editor/rss-feeds`, `/api/editor/rss-items` e `/api/editor/rss/refresh`; os aliases `/api/rss/sources`, `/api/rss/articles` e `/api/rss/fetch` atendem integrações que usam o caminho público. Em SQLite/D1 a migração é `drizzle/0004_rss.sql`; no PostgreSQL, `postgres/999_rss.sql` e `postgres/1000_rss_improvements.sql`.
+
 A API valida as permissões no servidor usando os cabeçalhos de identidade confiáveis do gateway Sites e a variável privada `ADMIN_EMAIL`. A conta administradora concede permissões editoriais por e-mail em `/admin`. Editores também precisam ter acesso ao Site pela hospedagem. Somente a conta administradora acessa `/admin`. Não basta esconder botões ou conhecer o endereço do painel. Escritas exigem origem igual, JSON e versão atual do registro. Rascunhos/arquivados não são retornados pela API pública. Não existem senhas ou chaves no código.
 
 ## Executar
@@ -63,7 +71,7 @@ A grade da temporada é preenchida pela redação no painel; a prévia com horá
 
 - Configure o projeto Vercel com o repositório e as opções de `vercel.json`. O build usa Node 22 ou superior.
 - Conecte um banco **dedicado ao VisionNews** no Neon. Configure a URL com pool de conexões como `DATABASE_URL` e uma chave aleatória como `BETTER_AUTH_SECRET`, ambas no ambiente privado da Vercel. Para domínio próprio ou execução local, defina `BETTER_AUTH_URL` com a origem exata.
-- Um build de produção com `DATABASE_URL` aplica as migrações em `postgres/`. Para aplicar manualmente, rode `npm run db:migrate`. Consulte `/api/readiness` para verificar a configuração da conta e do banco.
+- Um build de produção com `DATABASE_URL` aplica as migrações em `postgres/` automaticamente, em ordem, e registra o que já foi aplicado em `visionnews_migrations`. Não é necessário colar os arquivos no SQL Editor do Neon. Para aplicar manualmente fora do build, prefira `npm run db:migrate` com `DATABASE_URL` configurada; se for usar o SQL Editor, execute na ordem `0001_initial.sql`, `0002_news_feature.sql`, `999_rss.sql` e `1000_rss_improvements.sql`. Consulte `/api/readiness` para verificar a configuração da conta e do banco.
 - Para preservar os conteúdos editoriais, exporte o D1 completo em SQL e execute `npm run db:import -- caminho/do/export.sql` contra o banco já migrado, antes de criar conteúdo editorial no novo destino. Faça o corte após conferir a cópia. O script mantém os IDs e rejeita um destino com conteúdo.
 - Configure `ADMIN_EMAIL` no servidor e crie a primeira conta com `npm run admin:create` em um terminal seguro, usando também `DATABASE_URL`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET` e a senha inicial em `ADMIN_INITIAL_PASSWORD`. Use uma senha nova e remova a variável inicial depois. O script recusa endereços que já tenham uma conta. Para editores, autorize a conta por e-mail no painel e verifique sua identidade antes de marcar a conta como verificada no PostgreSQL.
 - Contas da watchlist são do VisionNews. Leituras salvas são locais ao navegador e à origem. A versão inicial usa cadastro por e-mail e senha, sem confirmação ou recuperação por e-mail para leitores.

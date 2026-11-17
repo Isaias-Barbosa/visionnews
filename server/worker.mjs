@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { fetchAndParseFeed } from "./rss.mjs";
+import { fetchAndParseFeed, validateFeedUrl } from "./rss.mjs";
 
 const categories = ["Notícias", "Reviews", "Guias", "Cultura"];
 const statuses = ["draft", "published", "archived"];
@@ -83,14 +83,290 @@ function rssFeedId(value) {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
+function rssNow() {
+  return new Date().toISOString();
+}
+
+// D1/SQLite store booleans as 0/1 while PostgreSQL expects real booleans.
+function rssBoolean(DB, value) {
+  return DB?.__postgres === true ? Boolean(value) : value ? 1 : 0;
+}
+
+function rssDuplicateError(error) {
+  return /duplicate key|unique constraint/i.test(
+    String(error?.message || error || ""),
+  );
+}
+
+function rssInputUrl(input) {
+  if (typeof input?.feed_url === "string") return input.feed_url.trim();
+  if (typeof input?.url === "string") return input.url.trim();
+  return "";
+}
+
 function rssItemResponse(item) {
   return {
     ...item,
+    id: Number(item.id),
+    feed_id: Number(item.feed_id),
+    imported_news_id: item.imported_news_id
+      ? Number(item.imported_news_id)
+      : null,
     imported: Boolean(item.imported_at),
   };
 }
 
-async function refreshRssFeed(DB, feedId) {
+function rssFeedResponse(feed) {
+  return {
+    ...feed,
+    id: Number(feed.id),
+    is_active: Boolean(feed.is_active),
+    auto_import: Boolean(feed.auto_import),
+    total_items: Number(feed.total_items || 0),
+    imported_items: Number(feed.imported_items || 0),
+  };
+}
+
+async function rssPersistItems(DB, feedId, result) {
+  const insertedItems = [];
+  const seen = new Set();
+  let inserted = 0;
+  let updated = 0;
+
+  for (const item of result.items || []) {
+    const itemKey = rssItemKey(item);
+
+    if (seen.has(itemKey)) continue;
+    seen.add(itemKey);
+
+    const values = [
+      item.guid || null,
+      item.link || null,
+      String(item.title || "").slice(0, 300),
+      item.summary || "",
+      item.content || "",
+      item.image || "",
+      item.author || "",
+      item.publishedAt,
+    ];
+
+    const existing = await DB.prepare(
+      "SELECT id FROM rss_items WHERE feed_id=? AND item_key=?",
+    )
+      .bind(feedId, itemKey)
+      .first();
+
+    if (existing) {
+      await DB.prepare(
+        `
+        UPDATE rss_items
+        SET guid=?,
+            link=?,
+            title=?,
+            summary=?,
+            content=?,
+            image_url=?,
+            author=?,
+            published_at=?
+        WHERE id=?
+      `,
+      )
+        .bind(...values, existing.id)
+        .run();
+
+      updated++;
+      continue;
+    }
+
+    const row = await DB.prepare(
+      `
+      INSERT INTO rss_items (
+        feed_id,
+        item_key,
+        guid,
+        link,
+        title,
+        summary,
+        content,
+        image_url,
+        author,
+        published_at,
+        created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (feed_id, item_key) DO NOTHING
+      RETURNING id
+    `,
+    )
+      .bind(feedId, itemKey, ...values, rssNow())
+      .first();
+
+    if (row) insertedItems.push({ id: Number(row.id), ...item, itemKey });
+    inserted++;
+  }
+
+  return { inserted, updated, insertedItems, total: result.items?.length || 0 };
+}
+
+async function rssTouchFeed(DB, feedId, result) {
+  await DB.prepare(
+    `
+    UPDATE rss_feeds
+    SET site_url=?,
+        last_fetched_at=?,
+        last_error=NULL,
+        updated_at=?
+    WHERE id=?
+  `,
+  )
+    .bind(
+      result.siteUrl || null,
+      result.fetchedAt || rssNow(),
+      rssNow(),
+      feedId,
+    )
+    .run();
+}
+
+function rssDraftInput(item, feed) {
+  const rawTitle = String(item.title || "").trim().slice(0, 160);
+  const title =
+    rawTitle.length >= 5 ? rawTitle : `${rawTitle} — notícia RSS`.slice(0, 160);
+
+  let summary = String(item.summary || item.content || "").trim();
+  if (summary.length > 350) summary = `${summary.slice(0, 347).trimEnd()}...`;
+  if (summary.length < 15) {
+    summary = `${title} — matéria recebida de ${feed.name}.`.slice(0, 350);
+  }
+
+  let body = String(item.content || item.summary || "").trim().slice(0, 50000);
+  if (body.length < 40) {
+    body = `${body}\n\nNotícia recebida de ${feed.name}. Revise, complemente e confira a fonte antes de publicar.`.trim();
+  }
+
+  const author = (
+    String(item.author || "").trim() ||
+    String(feed.name || "").trim() ||
+    "Redação VisionNews"
+  ).slice(0, 80);
+
+  return {
+    title,
+    summary,
+    body,
+    category: "Notícias",
+    author: author.length >= 2 ? author : "Redação VisionNews",
+    cover: VisionContent.https(item.image_url) || "",
+    source_url: VisionContent.https(item.link) || "",
+    source_label: String(feed.name || "Fonte RSS").slice(0, 120),
+    status: "draft",
+    body_format: "plain",
+    topic: "",
+    tags: "",
+    featured: false,
+  };
+}
+
+async function rssCreateNewsDraft(DB, item, feed) {
+  if (!String(item.title || "").trim()) {
+    return { error: "O item RSS não possui título.", status: 422 };
+  }
+
+  const { errors, value } = validateNews(rssDraftInput(item, feed));
+
+  if (errors.length) return { error: errors.join(" "), status: 422 };
+
+  const now = rssNow();
+  const subject = await DB.prepare(
+    `
+    INSERT INTO news (
+      title,
+      summary,
+      body,
+      category,
+      author,
+      cover,
+      source_url,
+      source_label,
+      status,
+      body_format,
+      review_score,
+      review_verdict,
+      anime_title,
+      topic,
+      tags,
+      featured,
+      news_published_once,
+      published_at,
+      featured_at,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    RETURNING *
+  `,
+  )
+    .bind(
+      value.title,
+      value.summary,
+      value.body,
+      value.category,
+      value.author,
+      value.cover,
+      value.source_url,
+      value.source_label,
+      value.status,
+      value.body_format,
+      value.review_score,
+      value.review_verdict,
+      value.anime_title,
+      value.topic,
+      value.tags,
+      0,
+      0,
+      null,
+      null,
+      now,
+      now,
+    )
+    .first();
+
+  return { item: subject };
+}
+
+async function rssMarkImported(DB, rssItemId, newsId) {
+  await DB.prepare(
+    `
+    UPDATE rss_items
+    SET imported_at=?,
+        imported_news_id=?
+    WHERE id=?
+  `,
+  )
+    .bind(rssNow(), newsId, rssItemId)
+    .run();
+}
+
+// Optional automation: when a source is marked for automatic import, every
+// newly fetched item becomes an editorial draft. Publication remains manual.
+async function rssAutoImportNewItems(DB, feed, items) {
+  if (!feed.auto_import || !items?.length) return 0;
+
+  let imported = 0;
+
+  for (const item of items.slice(0, 20)) {
+    const draft = await rssCreateNewsDraft(DB, item, feed);
+
+    if (draft.item) {
+      await rssMarkImported(DB, item.id, draft.item.id);
+      imported++;
+    }
+  }
+
+  return imported;
+}
+
+async function refreshRssFeed(DB, feedId, prefetched = null) {
   const feed = await DB.prepare("SELECT * FROM rss_feeds WHERE id=?")
     .bind(feedId)
     .first();
@@ -104,115 +380,43 @@ async function refreshRssFeed(DB, feedId) {
   }
 
   try {
-    const result = await fetchAndParseFeed(feed.feed_url);
-    let inserted = 0;
-    let updated = 0;
+    const result = prefetched || (await fetchAndParseFeed(feed.feed_url));
+    const persisted = await rssPersistItems(DB, feedId, result);
 
-    for (const item of result.items) {
-      const itemKey = rssItemKey(item);
+    await rssTouchFeed(DB, feedId, {
+      ...result,
+      siteUrl: result.siteUrl || feed.site_url,
+    });
 
-      const existing = await DB.prepare(
-        "SELECT id FROM rss_items WHERE feed_id=? AND item_key=?",
-      )
-        .bind(feedId, itemKey)
-        .first();
-
-      if (existing) {
-        await DB.prepare(
-          `
-          UPDATE rss_items
-          SET guid=?,
-              link=?,
-              title=?,
-              summary=?,
-              content=?,
-              image_url=?,
-              published_at=?
-          WHERE id=?
-        `,
-        )
-          .bind(
-            item.guid || null,
-            item.link || null,
-            item.title.slice(0, 300),
-            item.summary || "",
-            item.content || "",
-            item.image || "",
-            item.publishedAt,
-            existing.id,
-          )
-          .run();
-
-        updated++;
-      } else {
-        await DB.prepare(
-          `
-          INSERT INTO rss_items (
-            feed_id,
-            item_key,
-            guid,
-            link,
-            title,
-            summary,
-            content,
-            image_url,
-            published_at
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT (feed_id, item_key) DO NOTHING
-        `,
-        )
-          .bind(
-            feedId,
-            itemKey,
-            item.guid || null,
-            item.link || null,
-            item.title.slice(0, 300),
-            item.summary || "",
-            item.content || "",
-            item.image || "",
-            item.publishedAt,
-          )
-          .run();
-
-        inserted++;
-      }
-    }
-
-    await DB.prepare(
-      `
-      UPDATE rss_feeds
-      SET site_url=?,
-          last_fetched_at=?,
-          last_error=NULL,
-          updated_at=NOW()
-      WHERE id=?
-    `,
-    )
-      .bind(result.siteUrl || feed.site_url || null, result.fetchedAt, feedId)
-      .run();
+    const autoImported = await rssAutoImportNewItems(
+      DB,
+      feed,
+      persisted.insertedItems,
+    );
 
     return {
       ok: true,
       feedId,
       feedTitle: result.title,
       format: result.format,
-      total: result.items.length,
-      inserted,
-      updated,
-      fetchedAt: result.fetchedAt,
+      total: persisted.total,
+      inserted: persisted.inserted,
+      updated: persisted.updated,
+      autoImported,
+      fetchedAt: result.fetchedAt || rssNow(),
     };
   } catch (error) {
     await DB.prepare(
       `
       UPDATE rss_feeds
       SET last_error=?,
-          updated_at=NOW()
+          updated_at=?
       WHERE id=?
     `,
     )
       .bind(
         String(error.message || "Erro ao consultar feed").slice(0, 500),
+        rssNow(),
         feedId,
       )
       .run();
@@ -463,16 +667,55 @@ function securityHeaders(response) {
   );
   return response;
 }
+/**
+ * Public aliases for the RSS API. They keep the dedicated /api/rss/*
+ * entrypoints (used by the Vercel functions in api/rss) aligned with the
+ * canonical editorial routes handled by the Worker.
+ */
+function mapRssAlias(path) {
+  if (path === "/api/rss/sources") return "/api/editor/rss-feeds";
+  if (path === "/api/rss/fetch") return "/api/editor/rss/refresh";
+
+  let match = path.match(/^\/api\/rss\/sources\/([1-9]\d*)$/);
+  if (match) return `/api/editor/rss-feeds/${match[1]}`;
+
+  match = path.match(/^\/api\/rss\/fetch\/([1-9]\d*)$/);
+  if (match) return `/api/editor/rss-feeds/${match[1]}/refresh`;
+
+  if (path === "/api/rss/articles") return "/api/editor/rss-items";
+
+  match = path.match(
+    /^\/api\/rss\/articles\/([1-9]\d*)(\/imported|\/import)?$/,
+  );
+  if (match) return `/api/editor/rss-items/${match[1]}${match[2] || ""}`;
+
+  return path;
+}
+
 export async function handle(request, env) {
   const url = new URL(request.url),
-    path = url.pathname;
+    path = url.pathname,
+    routePath = mapRssAlias(path);
   try {
     if (path === "/api/health") return json({ ok: true });
     const privatePage = path.match(
       /^\/(admin|dashboard)(?:\/index\.html|\/)?$/,
     )?.[1];
-    if (privatePage && ["GET", "HEAD"].includes(request.method)) {
-      const target = "/" + privatePage;
+    const rssPage = /^\/(?:rss|rss\.html|rss\/index\.html)\/?$/.test(path);
+    const adminRssPage = /^\/admin\/rss(?:\.html|\/index\.html)?\/?$/.test(
+      path,
+    );
+
+    if (
+      (privatePage || rssPage || adminRssPage) &&
+      ["GET", "HEAD"].includes(request.method)
+    ) {
+      const target = rssPage
+        ? "/rss"
+        : adminRssPage
+          ? "/admin/rss"
+          : "/" + privatePage;
+
       if (!request.headers.get("oai-authenticated-user-id")) {
         const login = new URL(
           env.SIGN_IN_PATH || "/signin-with-chatgpt",
@@ -481,14 +724,18 @@ export async function handle(request, env) {
         login.searchParams.set(env.SIGN_IN_PATH ? "next" : "return_to", target);
         return Response.redirect(login, 302);
       }
-      if (
-        !(privatePage === "admin"
-          ? canAdmin(request, env)
-          : await canEdit(request, env))
-      )
+
+      const adminOnly = adminRssPage || privatePage === "admin";
+
+      if (!(adminOnly ? canAdmin(request, env) : await canEdit(request, env)))
         return json({ error: "Acesso restrito a esta área." }, 403);
+
       return serve(
-        target + "/index.html",
+        rssPage
+          ? "/rss.html"
+          : adminRssPage
+            ? "/admin/rss.html"
+            : target + "/index.html",
         request.method === "HEAD",
         env.ASSETS,
       );
@@ -575,8 +822,11 @@ export async function handle(request, env) {
         .all();
       return json({ items: results, year, quarter });
     }
-    if (path.startsWith("/api/admin/") || path.startsWith("/api/editor/")) {
-      const adminRoute = path.startsWith("/api/admin/");
+    if (
+      routePath.startsWith("/api/admin/") ||
+      routePath.startsWith("/api/editor/")
+    ) {
+      const adminRoute = routePath.startsWith("/api/admin/");
       if (!(adminRoute ? canAdmin(request, env) : await canEdit(request, env)))
         return json(
           { error: "Acesso restrito à administração." },
@@ -585,12 +835,11 @@ export async function handle(request, env) {
       if (path === "/api/admin/session" && request.method === "GET")
         return json({ authorized: true });
       if (!env.DB) return json({ error: "Banco de dados indisponível." }, 503);
+      const contentType = request.headers.get("Content-Type") || "";
       if (
-        request.method !== "GET" &&
+        !["GET", "HEAD"].includes(request.method) &&
         (request.headers.get("Origin") !== url.origin ||
-          !request.headers
-            .get("Content-Type")
-            ?.startsWith("application/json") ||
+          (contentType && !contentType.startsWith("application/json")) ||
           request.headers.get("Sec-Fetch-Site") === "cross-site")
       )
         return json({ error: "Origem da solicitação não permitida." }, 403);
@@ -617,342 +866,542 @@ export async function handle(request, env) {
         });
       }
 
-// ========================================
-// RSS - GERENCIAMENTO DE FONTES
-// ========================================
+      // ========================================
+      // RSS - FONTES
+      // ========================================
 
-if (path === '/api/editor/rss-feeds' && request.method === 'GET') {
-  const { results } = await env.DB.prepare(`
-    SELECT
-      f.*,
-      COUNT(i.id)::INTEGER AS total_items,
-      COUNT(i.imported_at)::INTEGER AS imported_items
-    FROM rss_feeds f
-    LEFT JOIN rss_items i ON i.feed_id = f.id
-    GROUP BY f.id
-    ORDER BY f.created_at DESC
-  `).all();
+      if (routePath === "/api/editor/rss-feeds" && request.method === "GET") {
+        const { results } = await env.DB.prepare(
+          `
+          SELECT
+            f.*,
+            (SELECT COUNT(*) FROM rss_items i WHERE i.feed_id = f.id) AS total_items,
+            (SELECT COUNT(*) FROM rss_items i WHERE i.feed_id = f.id AND i.imported_at IS NOT NULL) AS imported_items
+          FROM rss_feeds f
+          ORDER BY f.name ASC, f.id ASC
+        `,
+        ).all();
 
-  return json({ items: results });
-}
-
-if (path === '/api/editor/rss-feeds' && request.method === 'POST') {
-  let input;
-
-  try {
-    input = await bodyJson(request);
-  } catch {
-    return json({ error: 'Conteúdo inválido.' }, 400);
-  }
-
-  const name = typeof input.name === 'string'
-    ? input.name.trim()
-    : '';
-
-  const feedUrl = typeof input.feed_url === 'string'
-    ? input.feed_url.trim()
-    : '';
-
-  if (name.length < 2 || name.length > 120) {
-    return json({ error: 'O nome deve ter entre 2 e 120 caracteres.' }, 422);
-  }
-
-  if (!feedUrl || feedUrl.length > 2048) {
-    return json({ error: 'Informe uma URL válida para o feed.' }, 422);
-  }
-
-  try {
-    const result = await fetchAndParseFeed(feedUrl);
-
-    const item = await env.DB.prepare(`
-      INSERT INTO rss_feeds (
-        name,
-        feed_url,
-        site_url,
-        is_active
-      )
-      VALUES (?, ?, ?, TRUE)
-      RETURNING *
-    `).bind(
-      name,
-      result.requestedUrl,
-      result.siteUrl || null
-    ).first();
-
-    return json({
-      item,
-      preview: {
-        format: result.format,
-        title: result.title,
-        total: result.items.length
+        return json({ items: results.map(rssFeedResponse) });
       }
-    }, 201);
 
-  } catch (error) {
-    if (String(error.message).includes('duplicate key')) {
-      return json({ error: 'Esta fonte RSS já está cadastrada.' }, 409);
-    }
+      if (routePath === "/api/editor/rss-feeds" && request.method === "POST") {
+        let input;
 
-    return json({
-      error: error.message || 'Não foi possível cadastrar o feed.'
-    }, 422);
-  }
-}
+        try {
+          input = await bodyJson(request);
+        } catch {
+          return json({ error: "Conteúdo inválido." }, 400);
+        }
 
-// Atualizar, ativar ou desativar uma fonte
-const rssFeedMatch = path.match(
-  /^\/api\/editor\/rss-feeds\/([1-9]\d*)$/
-);
+        const name =
+          typeof input.name === "string" ? input.name.trim() : "";
+        const feedUrl = rssInputUrl(input);
+        const autoImport = input.auto_import === true;
 
-if (rssFeedMatch && ['PUT', 'DELETE'].includes(request.method)) {
-  const id = rssFeedId(rssFeedMatch[1]);
+        if (name.length < 2 || name.length > 120) {
+          return json(
+            { error: "O nome deve ter entre 2 e 120 caracteres." },
+            422,
+          );
+        }
 
-  if (!id) return json({ error: 'Identificador inválido.' }, 422);
+        if (!feedUrl || feedUrl.length > 2048) {
+          return json({ error: "Informe uma URL válida para o feed." }, 422);
+        }
 
-  const existing = await env.DB.prepare(
-    'SELECT * FROM rss_feeds WHERE id=?'
-  ).bind(id).first();
+        try {
+          const result = await fetchAndParseFeed(feedUrl);
+          const now = rssNow();
 
-  if (!existing) {
-    return json({ error: 'Fonte RSS não encontrada.' }, 404);
-  }
+          const feed = await env.DB.prepare(
+            `
+            INSERT INTO rss_feeds (
+              name,
+              feed_url,
+              site_url,
+              is_active,
+              auto_import,
+              last_fetched_at,
+              created_at,
+              updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING *
+          `,
+          )
+            .bind(
+              name,
+              result.requestedUrl,
+              result.siteUrl || null,
+              rssBoolean(env.DB, true),
+              rssBoolean(env.DB, autoImport),
+              now,
+              now,
+              now,
+            )
+            .first();
 
-  if (request.method === 'DELETE') {
-    await env.DB.prepare(
-      'DELETE FROM rss_feeds WHERE id=?'
-    ).bind(id).run();
+          const feedId = Number(feed.id);
+          const persisted = await rssPersistItems(env.DB, feedId, result);
 
-    return json({ ok: true });
-  }
+          await rssTouchFeed(env.DB, feedId, result);
 
-  let input;
+          const autoImported = await rssAutoImportNewItems(
+            env.DB,
+            { ...feed, auto_import: autoImport },
+            persisted.insertedItems,
+          );
 
-  try {
-    input = await bodyJson(request);
-  } catch {
-    return json({ error: 'Conteúdo inválido.' }, 400);
-  }
+          return json(
+            {
+              item: rssFeedResponse({
+                ...feed,
+                total_items: persisted.inserted,
+                imported_items: autoImported,
+              }),
+              preview: {
+                format: result.format,
+                title: result.title,
+                siteUrl: result.siteUrl,
+                total: result.items.length,
+              },
+              inserted: persisted.inserted,
+              updated: persisted.updated,
+              autoImported,
+            },
+            201,
+          );
+        } catch (error) {
+          if (rssDuplicateError(error)) {
+            return json(
+              { error: "Esta fonte RSS já está cadastrada." },
+              409,
+            );
+          }
 
-  const name = typeof input.name === 'string'
-    ? input.name.trim()
-    : existing.name;
+          return json(
+            {
+              error:
+                error.message || "Não foi possível cadastrar o feed.",
+            },
+            422,
+          );
+        }
+      }
 
-  const isActive = typeof input.is_active === 'boolean'
-    ? input.is_active
-    : existing.is_active;
+      const rssFeedMatch = routePath.match(
+        /^\/api\/editor\/rss-feeds\/([1-9]\d*)$/,
+      );
 
-  if (name.length < 2 || name.length > 120) {
-    return json({ error: 'Nome inválido.' }, 422);
-  }
+      if (
+        rssFeedMatch &&
+        ["PUT", "DELETE"].includes(request.method)
+      ) {
+        const id = rssFeedId(rssFeedMatch[1]);
 
-  await env.DB.prepare(`
-    UPDATE rss_feeds
-    SET name=?,
-        is_active=?,
-        updated_at=NOW()
-    WHERE id=?
-  `).bind(name, isActive, id).run();
+        if (!id) return json({ error: "Identificador inválido." }, 422);
 
-  return json({
-    item: await env.DB.prepare(
-      'SELECT * FROM rss_feeds WHERE id=?'
-    ).bind(id).first()
-  });
-}
+        const existing = await env.DB.prepare(
+          "SELECT * FROM rss_feeds WHERE id=?",
+        )
+          .bind(id)
+          .first();
 
-// ========================================
-// RSS - ATUALIZAÇÃO DOS FEEDS
-// ========================================
+        if (!existing) {
+          return json({ error: "Fonte RSS não encontrada." }, 404);
+        }
 
-const rssRefreshMatch = path.match(
-  /^\/api\/editor\/rss-feeds\/([1-9]\d*)\/refresh$/
-);
+        if (request.method === "DELETE") {
+          await env.DB.prepare("DELETE FROM rss_feeds WHERE id=?")
+            .bind(id)
+            .run();
 
-if (
-  rssRefreshMatch &&
-  request.method === 'POST'
-) {
-  const id = rssFeedId(rssRefreshMatch[1]);
+          return json({ ok: true });
+        }
 
-  if (!id) return json({ error: 'Identificador inválido.' }, 422);
+        let input;
 
-  const result = await refreshRssFeed(env.DB, id);
+        try {
+          input = await bodyJson(request);
+        } catch {
+          return json({ error: "Conteúdo inválido." }, 400);
+        }
 
-  if (result.error) {
-    return json({ error: result.error }, result.status);
-  }
+        const name =
+          typeof input.name === "string" && input.name.trim()
+            ? input.name.trim()
+            : existing.name;
+        const isActive =
+          typeof input.is_active === "boolean"
+            ? input.is_active
+            : Boolean(existing.is_active);
+        const autoImport =
+          typeof input.auto_import === "boolean"
+            ? input.auto_import
+            : Boolean(existing.auto_import);
 
-  return json(result);
-}
+        if (name.length < 2 || name.length > 120) {
+          return json({ error: "Nome inválido." }, 422);
+        }
 
-if (
-  path === '/api/editor/rss/refresh' &&
-  request.method === 'POST'
-) {
-  const { results: feeds } = await env.DB.prepare(
-    'SELECT id FROM rss_feeds WHERE is_active=TRUE ORDER BY id'
-  ).all();
+        let feedUrl = existing.feed_url;
+        const feedUrlInput = rssInputUrl(input);
 
-  const results = [];
+        if (feedUrlInput && feedUrlInput !== existing.feed_url) {
+          try {
+            feedUrl = await validateFeedUrl(feedUrlInput);
+          } catch (error) {
+            return json(
+              {
+                error:
+                  error.message || "Informe uma URL válida para o feed.",
+              },
+              422,
+            );
+          }
+        }
 
-  // Atualização sequencial para evitar sobrecarregar o servidor.
-  for (const feed of feeds) {
-    const result = await refreshRssFeed(env.DB, Number(feed.id));
+        const duplicate = await env.DB.prepare(
+          "SELECT id FROM rss_feeds WHERE feed_url=? AND id<>?",
+        )
+          .bind(feedUrl, id)
+          .first();
 
-    results.push({
-      feedId: Number(feed.id),
-      ...result
-    });
-  }
+        if (duplicate) {
+          return json(
+            { error: "Já existe uma fonte cadastrada com esta URL." },
+            409,
+          );
+        }
 
-  return json({
-    total: feeds.length,
-    results
-  });
-}
+        await env.DB.prepare(
+          `
+          UPDATE rss_feeds
+          SET name=?,
+              feed_url=?,
+              is_active=?,
+              auto_import=?,
+              updated_at=?
+          WHERE id=?
+        `,
+        )
+          .bind(
+            name,
+            feedUrl,
+            rssBoolean(env.DB, isActive),
+            rssBoolean(env.DB, autoImport),
+            rssNow(),
+            id,
+          )
+          .run();
 
-// ========================================
-// RSS - LISTAGEM DE NOTÍCIAS
-// ========================================
+        const item = await env.DB.prepare(
+          "SELECT * FROM rss_feeds WHERE id=?",
+        )
+          .bind(id)
+          .first();
 
-if (path === '/api/editor/rss-items' && request.method === 'GET') {
-  const feedId = url.searchParams.get('feed');
-  const imported = url.searchParams.get('imported');
-  const search = (url.searchParams.get('q') || '').trim().slice(0, 150);
-  const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
-  const limit = 30;
-  const offset = (page - 1) * limit;
+        return json({ item: rssFeedResponse(item) });
+      }
 
-  if (feedId && !rssFeedId(feedId)) {
-    return json({ error: 'Fonte inválida.' }, 422);
-  }
+      // ========================================
+      // RSS - ATUALIZAÇÃO DOS FEEDS
+      // ========================================
 
-  const conditions = [];
-  const parameters = [];
+      const rssRefreshMatch = routePath.match(
+        /^\/api\/editor\/rss-feeds\/([1-9]\d*)\/refresh$/,
+      );
 
-  if (feedId) {
-    conditions.push('i.feed_id=?');
-    parameters.push(Number(feedId));
-  }
+      if (rssRefreshMatch && request.method === "POST") {
+        const id = rssFeedId(rssRefreshMatch[1]);
 
-  if (imported === 'true') {
-    conditions.push('i.imported_at IS NOT NULL');
-  } else if (imported === 'false') {
-    conditions.push('i.imported_at IS NULL');
-  }
+        if (!id) return json({ error: "Identificador inválido." }, 422);
 
-  if (search) {
-    conditions.push('(i.title ILIKE ? OR i.summary ILIKE ?)');
-    parameters.push(`%${search}%`, `%${search}%`);
-  }
+        const result = await refreshRssFeed(env.DB, id);
 
-  const where = conditions.length
-    ? `WHERE ${conditions.join(' AND ')}`
-    : '';
+        if (result.error) {
+          return json({ error: result.error }, result.status);
+        }
 
-  const { results } = await env.DB.prepare(`
-    SELECT
-      i.*,
-      f.name AS feed_name,
-      f.site_url AS feed_site_url
-    FROM rss_items i
-    INNER JOIN rss_feeds f ON f.id = i.feed_id
-    ${where}
-    ORDER BY i.published_at DESC NULLS LAST, i.created_at DESC
-    LIMIT ? OFFSET ?
-  `).bind(...parameters, limit, offset).all();
+        return json(result);
+      }
 
-  const count = await env.DB.prepare(`
-    SELECT COUNT(*)::INTEGER AS total
-    FROM rss_items i
-    INNER JOIN rss_feeds f ON f.id = i.feed_id
-    ${where}
-  `).bind(...parameters).first();
+      if (
+        routePath === "/api/editor/rss/refresh" &&
+        request.method === "POST"
+      ) {
+        const { results: feeds } = await env.DB.prepare(
+          "SELECT id FROM rss_feeds WHERE is_active=? ORDER BY id",
+        )
+          .bind(rssBoolean(env.DB, true))
+          .all();
 
-  return json({
-    items: results.map(rssItemResponse),
-    page,
-    limit,
-    total: Number(count?.total || 0),
-    pages: Math.ceil(Number(count?.total || 0) / limit)
-  });
-}
+        const results = [];
+        let inserted = 0;
+        let updated = 0;
+        let autoImported = 0;
 
-// ========================================
-// RSS - DETALHES E IMPORTAÇÃO
-// ========================================
+        // Atualização sequencial para não sobrecarregar as fontes.
+        for (const feed of feeds) {
+          const result = await refreshRssFeed(env.DB, Number(feed.id));
 
-const rssItemMatch = path.match(
-  /^\/api\/editor\/rss-items\/([1-9]\d*)$/
-);
+          if (!result.error) {
+            inserted += result.inserted || 0;
+            updated += result.updated || 0;
+            autoImported += result.autoImported || 0;
+          }
 
-if (rssItemMatch && request.method === 'GET') {
-  const id = rssFeedId(rssItemMatch[1]);
+          results.push({
+            feedId: Number(feed.id),
+            ...result,
+          });
+        }
 
-  if (!id) return json({ error: 'Identificador inválido.' }, 422);
+        return json({
+          total: feeds.length,
+          inserted,
+          updated,
+          autoImported,
+          failures: results.filter((result) => result.error).length,
+          results,
+        });
+      }
 
-  const item = await env.DB.prepare(`
-    SELECT
-      i.*,
-      f.name AS feed_name,
-      f.site_url AS feed_site_url
-    FROM rss_items i
-    INNER JOIN rss_feeds f ON f.id = i.feed_id
-    WHERE i.id=?
-  `).bind(id).first();
+      // ========================================
+      // RSS - LISTAGEM DE NOTÍCIAS
+      // ========================================
 
-  if (!item) {
-    return json({ error: 'Notícia RSS não encontrada.' }, 404);
-  }
+      if (
+        routePath === "/api/editor/rss-items" &&
+        request.method === "GET"
+      ) {
+        const feedIdRaw = url.searchParams.get("feed");
+        const imported = url.searchParams.get("imported");
+        const search = (url.searchParams.get("q") || "")
+          .trim()
+          .slice(0, 150);
+        const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
+        const limit = Math.min(
+          100,
+          Math.max(1, Number(url.searchParams.get("limit")) || 30),
+        );
+        const offset = (page - 1) * limit;
 
-  return json({ item: rssItemResponse(item) });
-}
+        if (feedIdRaw && !rssFeedId(feedIdRaw)) {
+          return json({ error: "Fonte inválida." }, 422);
+        }
 
-// Marcar notícia RSS como importada após salvar no editor
-const rssImportedMatch = path.match(
-  /^\/api\/editor\/rss-items\/([1-9]\d*)\/imported$/
-);
+        const conditions = [];
+        const parameters = [];
 
-if (rssImportedMatch && request.method === 'POST') {
-  const id = rssFeedId(rssImportedMatch[1]);
+        if (feedIdRaw) {
+          conditions.push("i.feed_id=?");
+          parameters.push(Number(feedIdRaw));
+        }
 
-  if (!id) return json({ error: 'Identificador inválido.' }, 422);
+        if (imported === "true" || imported === "1") {
+          conditions.push("i.imported_at IS NOT NULL");
+        } else if (imported === "false" || imported === "0") {
+          conditions.push("i.imported_at IS NULL");
+        }
 
-  let input;
+        if (search) {
+          conditions.push(
+            "(LOWER(i.title) LIKE LOWER(?) OR LOWER(COALESCE(i.summary,'')) LIKE LOWER(?))",
+          );
+          parameters.push(`%${search}%`, `%${search}%`);
+        }
 
-  try {
-    input = await bodyJson(request);
-  } catch {
-    return json({ error: 'Conteúdo inválido.' }, 400);
-  }
+        const where = conditions.length
+          ? `WHERE ${conditions.join(" AND ")}`
+          : "";
 
-  const newsId = Number(input.news_id);
+        const { results } = await env.DB.prepare(
+          `
+          SELECT
+            i.*,
+            f.name AS feed_name,
+            f.feed_url AS feed_url,
+            f.site_url AS feed_site_url
+          FROM rss_items i
+          INNER JOIN rss_feeds f ON f.id = i.feed_id
+          ${where}
+          ORDER BY COALESCE(i.published_at, i.created_at) DESC, i.id DESC
+          LIMIT ? OFFSET ?
+        `,
+        )
+          .bind(...parameters, limit, offset)
+          .all();
 
-  if (!Number.isSafeInteger(newsId) || newsId < 1) {
-    return json({ error: 'Informe o ID da notícia criada.' }, 422);
-  }
+        const count = await env.DB.prepare(
+          `
+          SELECT COUNT(*) AS total
+          FROM rss_items i
+          INNER JOIN rss_feeds f ON f.id = i.feed_id
+          ${where}
+        `,
+        )
+          .bind(...parameters)
+          .first();
 
-  const news = await env.DB.prepare(
-    'SELECT id FROM news WHERE id=?'
-  ).bind(newsId).first();
+        const total = Number(count?.total || 0);
 
-  if (!news) {
-    return json({ error: 'Notícia editorial não encontrada.' }, 404);
-  }
+        return json({
+          items: results.map(rssItemResponse),
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit),
+        });
+      }
 
-  const result = await env.DB.prepare(`
-    UPDATE rss_items
-    SET imported_at=NOW(),
-        imported_news_id=?
-    WHERE id=?
-  `).bind(newsId, id).run();
+      // ========================================
+      // RSS - DETALHES E IMPORTAÇÃO
+      // ========================================
 
-  if (!result.meta.changes) {
-    return json({ error: 'Notícia RSS não encontrada.' }, 404);
-  }
+      const rssItemMatch = routePath.match(
+        /^\/api\/editor\/rss-items\/([1-9]\d*)$/,
+      );
 
-  return json({ ok: true, newsId });
-}
+      if (rssItemMatch && request.method === "GET") {
+        const id = rssFeedId(rssItemMatch[1]);
+
+        if (!id) return json({ error: "Identificador inválido." }, 422);
+
+        const item = await env.DB.prepare(
+          `
+          SELECT
+            i.*,
+            f.name AS feed_name,
+            f.feed_url AS feed_url,
+            f.site_url AS feed_site_url
+          FROM rss_items i
+          INNER JOIN rss_feeds f ON f.id = i.feed_id
+          WHERE i.id=?
+        `,
+        )
+          .bind(id)
+          .first();
+
+        if (!item) {
+          return json({ error: "Notícia RSS não encontrada." }, 404);
+        }
+
+        return json({ item: rssItemResponse(item) });
+      }
+
+      // Cria um rascunho editorial diretamente a partir do item RSS.
+      const rssImportMatch = routePath.match(
+        /^\/api\/editor\/rss-items\/([1-9]\d*)\/import$/,
+      );
+
+      if (rssImportMatch && request.method === "POST") {
+        const id = rssFeedId(rssImportMatch[1]);
+
+        if (!id) return json({ error: "Identificador inválido." }, 422);
+
+        const item = await env.DB.prepare(
+          `
+          SELECT
+            i.*,
+            f.name AS feed_name,
+            f.site_url AS feed_site_url
+          FROM rss_items i
+          INNER JOIN rss_feeds f ON f.id = i.feed_id
+          WHERE i.id=?
+        `,
+        )
+          .bind(id)
+          .first();
+
+        if (!item) {
+          return json({ error: "Notícia RSS não encontrada." }, 404);
+        }
+
+        if (item.imported_news_id) {
+          return json(
+            {
+              error: "Esta notícia RSS já foi cadastrada.",
+              newsId: Number(item.imported_news_id),
+            },
+            409,
+          );
+        }
+
+        const draft = await rssCreateNewsDraft(env.DB, item, {
+          name: item.feed_name || "Fonte RSS",
+        });
+
+        if (draft.error) {
+          return json({ error: draft.error }, draft.status || 422);
+        }
+
+        await rssMarkImported(env.DB, id, draft.item.id);
+
+        return json(
+          {
+            ok: true,
+            item: draft.item,
+            newsId: Number(draft.item.id),
+            rssItemId: id,
+          },
+          201,
+        );
+      }
+
+      // Marca o item RSS como importado depois de salvar no editor.
+      const rssImportedMatch = routePath.match(
+        /^\/api\/editor\/rss-items\/([1-9]\d*)\/imported$/,
+      );
+
+      if (rssImportedMatch && request.method === "POST") {
+        const id = rssFeedId(rssImportedMatch[1]);
+
+        if (!id) return json({ error: "Identificador inválido." }, 422);
+
+        let input;
+
+        try {
+          input = await bodyJson(request);
+        } catch {
+          return json({ error: "Conteúdo inválido." }, 400);
+        }
+
+        const newsId = Number(input.news_id);
+
+        if (!Number.isSafeInteger(newsId) || newsId < 1) {
+          return json(
+            { error: "Informe o ID da notícia criada." },
+            422,
+          );
+        }
+
+        const news = await env.DB.prepare("SELECT id FROM news WHERE id=?")
+          .bind(newsId)
+          .first();
+
+        if (!news) {
+          return json(
+            { error: "Notícia editorial não encontrada." },
+            404,
+          );
+        }
+
+        const rssItem = await env.DB.prepare(
+          "SELECT id FROM rss_items WHERE id=?",
+        )
+          .bind(id)
+          .first();
+
+        if (!rssItem) {
+          return json({ error: "Notícia RSS não encontrada." }, 404);
+        }
+
+        await rssMarkImported(env.DB, id, newsId);
+
+        return json({ ok: true, newsId });
+      }
 
       if (
         path === "/api/admin/editors" &&

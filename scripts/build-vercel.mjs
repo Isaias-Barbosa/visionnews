@@ -4,6 +4,8 @@ cpSync('public','dist/vercel',{recursive:true});
 // These documents must pass through the authorization handler.
 rmSync('dist/vercel/admin/index.html');
 rmSync('dist/vercel/dashboard/index.html');
+rmSync('dist/vercel/rss.html');
+rmSync('dist/vercel/admin/rss.html');
 if (process.env.VERCEL_ENV==='production' && process.env.DATABASE_URL) {
  const {migrate} = await import('./migrate-postgres.mjs');
  await migrate();

@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS rss_feeds (
     feed_url TEXT NOT NULL UNIQUE,
     site_url TEXT,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    auto_import BOOLEAN NOT NULL DEFAULT FALSE,
     last_fetched_at TIMESTAMPTZ,
     last_error TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -21,9 +22,10 @@ CREATE TABLE IF NOT EXISTS rss_items (
     summary TEXT,
     content TEXT,
     image_url TEXT,
+    author VARCHAR(160),
     published_at TIMESTAMPTZ,
     imported_at TIMESTAMPTZ,
-    imported_news_id BIGINT,
+    imported_news_id BIGINT REFERENCES news(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT rss_items_feed_item_key UNIQUE (feed_id, item_key)

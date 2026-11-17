@@ -15,6 +15,9 @@ export function createPool() {
 // parameter binding and write counts while reusing the same Worker handlers.
 export function postgresDatabase(pool) {
  return {
+  // Lets the Worker know that booleans must be bound as booleans instead of
+  // the 0/1 integers used by SQLite/D1.
+  __postgres: true,
   prepare(statement) {
    let parameters = [];
    let index = 0;

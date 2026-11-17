@@ -27,11 +27,28 @@
     {
       "source": "/dashboard/index.html",
       "destination": "/api/visionnews"
+    },
+    {
+      "source": "/rss",
+      "destination": "/api/visionnews"
+    },
+    {
+      "source": "/rss.html",
+      "destination": "/api/visionnews"
+    },
+    {
+      "source": "/admin/rss",
+      "destination": "/api/visionnews"
+    },
+    {
+      "source": "/admin/rss.html",
+      "destination": "/api/visionnews"
     }
   ],
   "functions": {
     "api/visionnews.js": {
-      "includeFiles": "public/{admin,dashboard}/index.html"
+      "includeFiles": "public/{admin,dashboard}/index.html,public/rss.html,public/admin/rss.html",
+      "maxDuration": 30
     }
   },
   "headers": [

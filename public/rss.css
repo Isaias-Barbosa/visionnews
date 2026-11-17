@@ -1,0 +1,824 @@
+/* ==========================================================================
+   VisionNews — Radar de Notícias RSS
+   Usado pela página /rss e pelo módulo RSS do dashboard editorial.
+   ========================================================================== */
+
+.rssWorkspace {
+  display: grid;
+  gap: 22px;
+  color: #f4f4f6;
+  min-width: 0;
+}
+
+.rssWorkspace *,
+.rssWorkspace *::before,
+.rssWorkspace *::after {
+  box-sizing: border-box;
+}
+
+/* ---------------------------------------------------------------- Cabeçalho */
+
+.rssHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rssEyebrow {
+  display: inline-block;
+  font-size: 9px;
+  letter-spacing: 2.4px;
+  color: var(--lime);
+  text-transform: uppercase;
+}
+
+.rssHead h2 {
+  margin: 8px 0 6px;
+  font: 700 clamp(30px, 3.2vw, 46px) / 0.98 'Barlow Condensed', sans-serif;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.rssHead p {
+  margin: 0;
+  max-width: 680px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.rssActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ----------------------------------------------------------------- Botões */
+
+.rssWorkspace .rssButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: auto;
+  min-height: 38px;
+  padding: 9px 16px;
+  border: 1px solid #3a4356;
+  border-radius: 4px;
+  background: #161b26;
+  color: #dfe4ee;
+  font: 600 12px 'DM Sans', sans-serif;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease,
+    transform 0.16s ease;
+}
+
+.rssWorkspace .rssButton:hover:not(:disabled) {
+  border-color: #596480;
+  transform: translateY(-1px);
+}
+
+.rssWorkspace .rssButton:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 2px;
+}
+
+.rssWorkspace .rssButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rssWorkspace .rssButton.primary {
+  background: var(--lime);
+  border-color: var(--lime);
+  color: #11150d;
+}
+
+.rssWorkspace .rssButton.primary:hover:not(:disabled) {
+  background: #e4ff8a;
+  border-color: #e4ff8a;
+}
+
+.rssWorkspace .rssButton.danger {
+  color: #f3b8ad;
+  border-color: #5b3632;
+}
+
+.rssWorkspace .rssButton.danger:hover:not(:disabled) {
+  color: #fff;
+  background: #4b2320;
+  border-color: #80463f;
+}
+
+.rssWorkspace .rssButton.small {
+  min-height: 30px;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+
+.rssWorkspace .rssIconButton {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #3a4356;
+  border-radius: 50%;
+  background: #161b26;
+  color: #dfe4ee;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rssWorkspace .rssIconButton:hover {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+
+/* ---------------------------------------------------------------- Status */
+
+.rssStatus {
+  margin: 0;
+  min-height: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.rssStatus:empty {
+  display: none;
+}
+
+.rssStatus.success {
+  color: var(--lime);
+}
+
+.rssStatus.error {
+  color: #f3b8ad;
+}
+
+/* ---------------------------------------------------------------- Blocos */
+
+.rssBlockHead,
+.rssListHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.rssBlockHead h3,
+.rssListHead h3 {
+  margin: 0;
+  font: 700 22px 'Barlow Condensed', sans-serif;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.rssBlockHead span,
+.rssListHead span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* --------------------------------------------------------------- Fontes */
+
+.rssSources {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.rssSource {
+  display: grid;
+  gap: 11px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #131721;
+  min-width: 0;
+}
+
+.rssSource.inactive {
+  opacity: 0.64;
+}
+
+.rssSourceTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rssSourceName {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rssSourceName strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.rssSourceName small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.rssSourceBadges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.rssSourceMeta {
+  margin: 0;
+  color: #b8bfcd;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.rssSourceError {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid #b4554a;
+  border-radius: 3px;
+  background: #43211d55;
+  color: #f3b8ad;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.rssSourceActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+/* Interruptor de fonte ativa */
+
+.rssSwitch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #3a4356;
+  border-radius: 22px;
+  background: #252b38;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.rssSwitch span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #aeb6c7;
+  transition: left 0.18s ease, background 0.18s ease;
+}
+
+.rssSwitch.on {
+  background: #2b3a12;
+  border-color: #6c8b1f;
+}
+
+.rssSwitch.on span {
+  left: 18px;
+  background: var(--lime);
+}
+
+.rssSwitch:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------- Filtros */
+
+.rssFilters {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.3fr) minmax(150px, 1fr) minmax(150px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #11151d;
+}
+
+.rssFilters label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rssFilters label span {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+}
+
+.rssWorkspace .rssFilters input,
+.rssWorkspace .rssFilters select {
+  width: 100%;
+  min-height: 38px;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid #333b4c;
+  border-radius: 4px;
+  background: #0d1017;
+  color: #f4f4f6;
+  font: 12px 'DM Sans', sans-serif;
+  outline-color: var(--lime);
+}
+
+.rssFilters .rssButton {
+  min-height: 38px;
+}
+
+/* --------------------------------------------------------------- Notícias */
+
+.rssList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+  min-height: 120px;
+}
+
+.rssWorkspace .rssCard {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #131721;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, transform 0.16s ease;
+}
+
+.rssWorkspace .rssCard:hover {
+  border-color: #596480;
+  transform: translateY(-2px);
+}
+
+.rssWorkspace .rssCard:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 2px;
+}
+
+.rssCardCover {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(135deg, #1c2230, #0d1017);
+  overflow: hidden;
+}
+
+.rssCardCover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rssCardFallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #3b455a;
+  font: 700 42px 'Barlow Condensed', sans-serif;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.rssCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex: 1;
+  padding: 13px 14px 15px;
+}
+
+.rssCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rssCardFeed {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--lime);
+  font-size: 9px;
+  letter-spacing: 1.3px;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rssCardTitle {
+  display: -webkit-box;
+  overflow: hidden;
+  font: 600 15px / 1.35 'DM Sans', sans-serif;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.rssCardSummary {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #aeb6c7;
+  font-size: 11px;
+  line-height: 1.6;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.rssCardFoot {
+  margin-top: auto;
+  padding-top: 6px;
+  color: #7c8496;
+  font-size: 10px;
+}
+
+/* Etiquetas */
+
+.rssPill {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border-radius: 3px;
+  background: #ffffff0f;
+  color: #aeb6c7;
+  font-size: 8px;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rssPill.imported {
+  background: #d9ff6014;
+  color: var(--lime);
+}
+
+.rssPill.auto {
+  background: #6cc7ff17;
+  color: #8fd2ff;
+}
+
+.rssPill.error {
+  background: #b4554a22;
+  color: #f3b8ad;
+}
+
+/* --------------------------------------------------------------- Paginação */
+
+.rssPager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 18px 0 0;
+}
+
+.rssPager span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* --------------------------------------------------------------- Vazio */
+
+.rssEmpty {
+  grid-column: 1 / -1;
+  padding: 34px 20px;
+  border: 1px dashed #333b4c;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.rssEmpty strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #dfe4ee;
+  font: 700 22px 'Barlow Condensed', sans-serif;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+/* --------------------------------------------------------------- Diálogos */
+
+.rssDialog {
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #f4f4f6;
+}
+
+.rssDialog::backdrop {
+  background: #05070bcc;
+  backdrop-filter: blur(3px);
+}
+
+.rssDialogCard {
+  width: min(780px, calc(100vw - 28px));
+  max-height: min(88vh, 920px);
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid #394152;
+  border-radius: 8px;
+  background: #131721;
+  box-shadow: 0 30px 90px #000000aa;
+}
+
+.rssDialogHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.rssDialogHead h3 {
+  margin: 0;
+  font: 700 clamp(24px, 3vw, 34px) / 1.05 'Barlow Condensed', sans-serif;
+  letter-spacing: 0.3px;
+}
+
+.rssDialogMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rssDialogMeta a {
+  color: var(--lime);
+  text-decoration: underline;
+}
+
+.rssDialogImage {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  margin: 0 0 18px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #0d1017;
+}
+
+.rssDialogSummary {
+  margin: 0 0 16px;
+  color: #e6e9f0;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.rssDialogContent {
+  margin: 0 0 22px;
+  color: #c5ccda;
+  font-size: 13px;
+  line-height: 1.85;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rssDialogContent.clamped {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 10;
+}
+
+.rssDialogActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.rssDialogActions .rssButton.primary {
+  min-height: 44px;
+  padding-inline: 22px;
+}
+
+.rssDialogHint {
+  margin: 0 0 0 auto;
+  max-width: 260px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+/* --------------------------------------------------------------- Formulário */
+
+.rssFeedForm {
+  display: grid;
+  gap: 14px;
+}
+
+.rssField {
+  display: grid;
+  gap: 7px;
+}
+
+.rssField span {
+  color: #c9cfdb;
+  font-size: 11px;
+}
+
+.rssWorkspace .rssField input,
+.rssWorkspace .rssField select {
+  width: 100%;
+  min-height: 40px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #333b4c;
+  border-radius: 4px;
+  background: #0d1017;
+  color: #f4f4f6;
+  font: 12px 'DM Sans', sans-serif;
+  outline-color: var(--lime);
+}
+
+.rssCheck {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: #c9cfdb;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.rssWorkspace .rssCheck input {
+  width: auto;
+  margin: 2px 0 0;
+  accent-color: var(--lime);
+}
+
+.rssHint,
+.rssFormStatus {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+.rssFormStatus.error {
+  color: #f3b8ad;
+}
+
+/* Sugestões de fontes */
+
+.rssSuggest {
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0f131b;
+}
+
+.rssSuggest summary {
+  color: #c9cfdb;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.rssChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 11px;
+}
+
+.rssChip {
+  max-width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #333b4c;
+  border-radius: 999px;
+  background: #161b26;
+  color: #c9cfdb;
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rssChip:hover {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+
+.rssChip small {
+  display: block;
+  margin-top: 2px;
+  color: #7c8496;
+  font-size: 9px;
+}
+
+/* Nota do editor quando uma notícia vem do RSS */
+
+.rssNote {
+  margin: 0 0 18px;
+  padding: 11px 14px;
+  border-left: 3px solid var(--lime);
+  border-radius: 3px;
+  background: #d9ff6008;
+  color: #cdd4e1;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.rssNote strong {
+  color: var(--lime);
+}
+
+.rssNote a {
+  color: var(--lime);
+  text-decoration: underline;
+}
+
+/* --------------------------------------------------------------- Responsivo */
+
+@media (max-width: 900px) {
+  .rssFilters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .rssFilters .rssButton {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 620px) {
+  .rssHead {
+    align-items: flex-start;
+  }
+
+  .rssHead h2 {
+    font-size: 32px;
+  }
+
+  .rssActions {
+    width: 100%;
+  }
+
+  .rssActions .rssButton {
+    flex: 1 1 auto;
+  }
+
+  .rssFilters {
+    grid-template-columns: 1fr;
+  }
+
+  .rssList,
+  .rssSources {
+    grid-template-columns: 1fr;
+  }
+
+  .rssDialogCard {
+    width: calc(100vw - 18px);
+    padding: 18px;
+  }
+
+  .rssDialogHint {
+    margin-left: 0;
+    max-width: none;
+  }
+}

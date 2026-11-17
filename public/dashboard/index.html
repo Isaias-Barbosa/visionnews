@@ -11,6 +11,7 @@
     />
     <link rel="stylesheet" href="/style.css" />
     <link rel="stylesheet" href="/admin/admin.css" />
+    <link rel="stylesheet" href="/rss.css" />
   </head>
   <body class="adminBody">
     <header class="adminHeader">
@@ -44,65 +45,8 @@
     </nav>
         <div class="deskContent">
             <section id="rssPanel" class="dashboardPanel" hidden>
-  <div class="panelHeader">
-    <div>
-      <h2>Importação RSS</h2>
-      <p>Gerencie fontes e receba notícias para revisão editorial.</p>
-    </div>
-
-    <button type="button" id="rssRefreshAll">
-      Atualizar todas as fontes
-    </button>
-  </div>
-
-  <div id="rssStatus" role="status" aria-live="polite"></div>
-
-  <div class="rssFormCard">
-    <h3>Adicionar fonte RSS</h3>
-
-    <form id="rssForm">
-      <div>
-        <label for="rssName">Nome da fonte</label>
-        <input
-          type="text"
-          id="rssName"
-          placeholder="Ex.: Crunchyroll News"
-          minlength="2"
-          maxlength="120"
-          required
-        />
-      </div>
-
-      <div>
-        <label for="rssUrl">URL do feed RSS/Atom</label>
-        <input
-          type="url"
-          id="rssUrl"
-          placeholder="https://exemplo.com/feed"
-          maxlength="2048"
-          required
-        />
-      </div>
-
-      <button type="submit" id="rssAddButton">
-        Adicionar fonte
-      </button>
-    </form>
-  </div>
-
-  <div class="rssFeedsSection">
-    <div class="panelHeader">
-      <h3>Fontes cadastradas</h3>
-      <button type="button" id="rssReload">
-        Atualizar lista
-      </button>
-    </div>
-
-    <div id="rssFeeds">
-      <p>Carregando fontes...</p>
-    </div>
-  </div>
-</section>
+              <div id="rssWorkspace"></div>
+            </section>
           <p id="globalStatus" role="status" aria-live="polite">
             Conectando à redação…
           </p>
@@ -152,6 +96,7 @@
                     Prévia ↗
                   </button>
                 </div>
+                <p id="rssNote" class="rssNote" hidden></p>
                 <label
                   >Título<input
                     id="title"
@@ -587,6 +532,8 @@
     </dialog>
     <script src="/content.js"></script>
     <script src="/admin/editor.js"></script>
+    <script src="/rss-sources.js"></script>
+    <script src="/rss.js"></script>
     <script src="/dashboard/dashboard.js"></script>
   </body>
 </html>

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Notícias RSS — VisionNews</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&amp;family=DM+Sans:wght@400;500;600;700&amp;display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/admin/admin.css" />
+    <link rel="stylesheet" href="/rss.css" />
+  </head>
+  <body class="adminBody rssPage">
+    <header class="adminHeader">
+      <a class="logo" href="/">VISION<span>NEWS</span></a>
+      <span class="adminBadge">NOTÍCIAS RSS</span>
+      <a href="/dashboard">Dashboard editorial ↗</a>
+      <a href="/" target="_blank" rel="noopener">Ver portal ↗</a>
+    </header>
+
+    <main class="adminMain rssMain">
+      <div class="adminTop">
+        <div>
+          <span class="eyebrow">RADAR DE FONTES</span>
+          <h1>Notícias RSS<span>.</span></h1>
+          <p>
+            Últimas notícias das fontes cadastradas. Escolha uma, revise o
+            conteúdo e envie para os campos do editor.
+          </p>
+        </div>
+        <a class="outlineButton" href="/dashboard">Ir para o dashboard →</a>
+      </div>
+
+      <div
+        id="rssWorkspace"
+        data-rss-workspace
+        data-rss-auto="page"
+      ></div>
+    </main>
+
+    <script src="/content.js"></script>
+    <script src="/rss-sources.js"></script>
+    <script src="/rss.js"></script>
+  </body>
+</html>

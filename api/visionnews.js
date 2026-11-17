@@ -11,7 +11,9 @@ const origin = process.env.BETTER_AUTH_URL ||
   process.env.VERCEL_PROJECT_PRODUCTION_URL ? 'https://'+process.env.VERCEL_PROJECT_PRODUCTION_URL : '');
 const editorialAssets = {
  '/admin/index.html': {body:readFileSync(new URL('../public/admin/index.html',import.meta.url),'utf8'),type:'text/html; charset=utf-8'},
- '/dashboard/index.html': {body:readFileSync(new URL('../public/dashboard/index.html',import.meta.url),'utf8'),type:'text/html; charset=utf-8'}
+ '/admin/rss.html': {body:readFileSync(new URL('../public/admin/rss.html',import.meta.url),'utf8'),type:'text/html; charset=utf-8'},
+ '/dashboard/index.html': {body:readFileSync(new URL('../public/dashboard/index.html',import.meta.url),'utf8'),type:'text/html; charset=utf-8'},
+ '/rss.html': {body:readFileSync(new URL('../public/rss.html',import.meta.url),'utf8'),type:'text/html; charset=utf-8'}
 };
 let runtime;
 
@@ -36,7 +38,7 @@ export async function dispatch(request) {
   return service?.auth ? service.auth.handler(request) : unavailable();
  }
  const listRoute=url.pathname==='/api/watchlist';
- const editorialRoute=/^\/(admin|dashboard)(?:\/|$)/.test(url.pathname) || /^\/api\/(admin|editor)\//.test(url.pathname);
+ const editorialRoute=/^\/(admin|dashboard|rss)(?:\/|\.html|$)/.test(url.pathname) || /^\/api\/(admin|editor|rss)\//.test(url.pathname);
  const session=(listRoute||editorialRoute) && service?.auth ? await service.auth.api.getSession({headers:request.headers}) : null;
  if (listRoute) return service?.auth ? watchlist(request,service.pool,session?.user) : unavailable();
 
@@ -49,10 +51,10 @@ export async function dispatch(request) {
   headers.set('oai-authenticated-user-id',session.user.id);
   headers.set('oai-authenticated-user-email',session.user.email);
  }
- const protectedPage = url.pathname.match(/^\/(admin|dashboard)(?:\/index\.html|\/)?$/);
- if (session?.user && !session.user.emailVerified && protectedPage && ['GET','HEAD'].includes(request.method)) {
+ const privateMatch = url.pathname.match(/^\/(admin(?:\/rss)?|dashboard|rss)(?:\/index\.html|\/|\.html)?$/);
+ if (session?.user && !session.user.emailVerified && privateMatch && ['GET','HEAD'].includes(request.method)) {
   const login = new URL('/login',url.origin);
-  login.search = new URLSearchParams({next:'/'+protectedPage[1],reason:'verification'});
+  login.search = new URLSearchParams({next:'/'+privateMatch[1],reason:'verification'});
   return Response.redirect(login,302);
  }
  const forwarded = new Request(request,{headers});

@@ -4,6 +4,7 @@ db.exec(readFileSync('drizzle/0000_news.sql','utf8').replace(/^\uFEFF/,''));
 db.exec(readFileSync('drizzle/0001_editor_reviews_schedule.sql','utf8').replace(/^\uFEFF/,''));
 db.exec(readFileSync('drizzle/0002_editorial_dashboard.sql','utf8'));
 db.exec(readFileSync('drizzle/0003_news_feature.sql','utf8'));
+db.exec(readFileSync('drizzle/0004_rss.sql','utf8'));
 const env={
  ADMIN_EMAIL:'editor@example.com',
  DB:{prepare(sql){
@@ -95,4 +96,127 @@ test('daily recommendation respects date, status, official links and unique date
  assert.equal(await publicItem(),null);
  assert.equal((await write(collection,'POST',{...input,feature_date:'2099-01-01',status:'published'})).status,201);
  assert.equal(await publicItem(),null);
+});
+
+
+test('RSS radar lists sources, filters items and imports drafts without bypassing review', async () => {
+ const now = new Date().toISOString();
+ const insertFeed = db.prepare('INSERT INTO rss_feeds (name,feed_url,site_url,is_active,auto_import,created_at,updated_at) VALUES (?,?,?,?,?,?,?)');
+ const insertItem = db.prepare('INSERT INTO rss_items (feed_id,item_key,guid,link,title,summary,content,image_url,author,published_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+ const idOf = (table, url) => db.prepare(`SELECT id FROM ${table} WHERE feed_url=?`).get(url).id;
+
+ insertFeed.run('Feed Principal','https://feeds.example.com/a.xml','https://anime.example.com/',1,0,now,now);
+ const feedA = idOf('rss_feeds','https://feeds.example.com/a.xml');
+ insertFeed.run('Feed Secundário','https://feeds.example.com/b.xml','https://manga.example.com/',1,0,now,now);
+ const feedB = idOf('rss_feeds','https://feeds.example.com/b.xml');
+
+ insertItem.run(feedA,'key-1','guid-1','https://anime.example.com/primeira','Primeira notícia do radar','Resumo editorial número um para a listagem.','Conteúdo completo da primeira notícia para o rascunho editorial.','https://cdn.example.com/1.jpg','Redação','2026-11-16T12:00:00.000Z',now);
+ insertItem.run(feedA,'key-2','guid-2','https://anime.example.com/segunda','Segunda notícia do radar','Outro resumo para testar a busca por texto.','Conteúdo completo da segunda notícia para o rascunho editorial.','','Equipe','2026-11-15T09:00:00.000Z',now);
+ insertItem.run(feedB,'key-3','guid-3','https://manga.example.com/terceira','Notícia de outra fonte','Resumo vindo do segundo feed cadastrado.','Conteúdo completo da notícia do segundo feed para o rascunho.','','Redação','2026-11-14T08:00:00.000Z',now);
+
+ const anon = await worker.fetch(new Request('https://vision.test/rss'),env);
+ assert.equal(anon.status,302);
+ const rssPage = await worker.fetch(request('/rss'),env);
+ assert.equal(rssPage.status,200);
+ assert((await rssPage.text()).includes('rssWorkspace'));
+ assert.equal((await worker.fetch(request('/admin/rss'),env)).status,200);
+ assert.equal((await worker.fetch(request('/rss','GET',null,{'oai-authenticated-user-email':'other@example.com'}),env)).status,403);
+ assert.equal((await worker.fetch(request('/admin/rss','GET',null,{'oai-authenticated-user-email':'other@example.com'}),env)).status,403);
+ assert.equal((await worker.fetch(request('/api/editor/rss-feeds'),env)).status,200);
+ assert.equal((await worker.fetch(request('/api/rss/sources'),env)).status,200);
+ assert.equal((await worker.fetch(request('/api/editor/rss-feeds','POST',{name:'A',feed_url:'https://feeds.example.com/c.xml'}),env)).status,422);
+ assert.equal((await worker.fetch(request('/api/editor/rss-feeds','POST',{name:'Feed inválido',feed_url:'not-a-url'}),env)).status,422);
+ assert.equal((await worker.fetch(request('/api/editor/rss-feeds','POST',{name:'Feed privado',feed_url:'http://127.0.0.1/feed.xml'}),env)).status,422);
+
+ let feeds = await (await worker.fetch(request('/api/editor/rss-feeds'),env)).json();
+ assert.equal(feeds.items.length,2);
+ const feedAResponse = feeds.items.find(feed => feed.id === feedA);
+ assert.equal(feedAResponse.is_active,true);
+ assert.equal(feedAResponse.auto_import,false);
+ assert.equal(feedAResponse.total_items,2);
+ assert.equal(feedAResponse.imported_items,0);
+
+ let list = await (await worker.fetch(request('/api/editor/rss-items'),env)).json();
+ assert.equal(list.total,3);
+ assert.deepEqual(list.items.map(item => item.title),['Primeira notícia do radar','Segunda notícia do radar','Notícia de outra fonte']);
+ assert.equal(list.items[0].feed_name,'Feed Principal');
+ assert.equal(list.page,1);
+
+ list = await (await worker.fetch(request(`/api/editor/rss-items?feed=${feedB}`),env)).json();
+ assert.equal(list.total,1);
+ assert.equal(list.items[0].feed_id,feedB);
+
+ list = await (await worker.fetch(request('/api/editor/rss-items?q=SEGUNDA'),env)).json();
+ assert.equal(list.total,1);
+ assert.equal(list.items[0].title,'Segunda notícia do radar');
+
+ list = await (await worker.fetch(request('/api/editor/rss-items?limit=1&page=2'),env)).json();
+ assert.equal(list.total,3);
+ assert.equal(list.pages,3);
+ assert.equal(list.page,2);
+ assert.equal(list.items.length,1);
+
+ list = await (await worker.fetch(request('/api/editor/rss-items?imported=false'),env)).json();
+ assert.equal(list.total,3);
+
+ const itemId = list.items[0].id;
+ let detail = await (await worker.fetch(request('/api/editor/rss-items/'+itemId),env)).json();
+ assert.equal(detail.item.imported,false);
+ assert.equal((await worker.fetch(request('/api/editor/rss-items/999999'),env)).status,404);
+ assert.equal((await worker.fetch(request('/api/rss/articles/'+itemId),env)).status,200);
+
+ let update = await worker.fetch(request('/api/editor/rss-feeds/'+feedA,'PUT',{name:'Feed Principal Editado',auto_import:true}),env);
+ assert.equal(update.status,200);
+ let updated = (await update.json()).item;
+ assert.equal(updated.name,'Feed Principal Editado');
+ assert.equal(updated.auto_import,true);
+ assert.equal((await worker.fetch(request('/api/editor/rss-feeds/'+feedA,'PUT',{name:'x'}),env)).status,422);
+ assert.equal((await worker.fetch(request('/api/editor/rss-feeds/999999','PUT',{name:'Inexistente'}),env)).status,404);
+
+ // Importação direta cria rascunho e marca o item como cadastrado.
+ const imported = await worker.fetch(request('/api/editor/rss-items/'+itemId+'/import','POST'),env);
+ assert.equal(imported.status,201);
+ const importedData = await imported.json();
+ assert.equal(importedData.item.status,'draft');
+ assert.equal(importedData.item.source_label,'Feed Principal Editado');
+ assert.equal(importedData.newsId,importedData.item.id);
+ assert.equal((await worker.fetch(request('/api/editor/rss-items/'+itemId+'/import','POST'),env)).status,409);
+ assert.equal((await worker.fetch(request('/api/editor/rss-items/999999/import','POST'),env)).status,404);
+
+ detail = await (await worker.fetch(request('/api/editor/rss-items/'+itemId),env)).json();
+ assert.equal(detail.item.imported,true);
+ assert.equal(detail.item.imported_news_id,importedData.newsId);
+
+ list = await (await worker.fetch(request('/api/editor/rss-items?imported=true'),env)).json();
+ assert.equal(list.total,1);
+
+ // Depois de salvar no editor, o dashboard confirma o vínculo pelo /imported.
+ let draft = await (await worker.fetch(request('/api/editor/news','POST',{...sample,title:'Rascunho vindo do radar RSS'}),env)).json();
+ const otherItem = db.prepare('SELECT id FROM rss_items WHERE item_key=?').get('key-2').id;
+ assert.equal((await worker.fetch(request('/api/editor/rss-items/'+otherItem+'/imported','POST',{news_id:'x'}),env)).status,422);
+ assert.equal((await worker.fetch(request('/api/editor/rss-items/'+otherItem+'/imported','POST',{news_id:999999}),env)).status,404);
+ const marked = await worker.fetch(request('/api/editor/rss-items/'+otherItem+'/imported','POST',{news_id:draft.item.id}),env);
+ assert.equal(marked.status,200);
+ detail = await (await worker.fetch(request('/api/editor/rss-items/'+otherItem),env)).json();
+ assert.equal(detail.item.imported,true);
+ assert.equal(detail.item.imported_news_id,draft.item.id);
+
+ // Fontes desativadas não são consultadas e a atualização em massa não sai à rede.
+ assert.equal((await worker.fetch(request('/api/editor/rss-feeds/'+feedA,'PUT',{is_active:false}),env)).status,200);
+ assert.equal((await worker.fetch(request('/api/editor/rss-feeds/'+feedB,'PUT',{is_active:false}),env)).status,200);
+ assert.equal((await worker.fetch(request('/api/editor/rss-feeds/'+feedB+'/refresh','POST'),env)).status,422);
+ assert.equal((await worker.fetch(request('/api/editor/rss-feeds/999999/refresh','POST'),env)).status,404);
+ const refreshed = await worker.fetch(request('/api/rss/fetch','POST'),env);
+ assert.equal(refreshed.status,200);
+ const refreshedData = await refreshed.json();
+ assert.equal(refreshedData.total,0);
+ assert.equal(refreshedData.inserted,0);
+
+ assert.equal((await worker.fetch(request('/api/editor/rss-feeds/'+feedB,'DELETE'),env)).status,200);
+ feeds = await (await worker.fetch(request('/api/editor/rss-feeds'),env)).json();
+ assert.equal(feeds.items.length,1);
+
+ db.exec('DELETE FROM rss_items');
+ db.exec('DELETE FROM rss_feeds');
+ db.exec('DELETE FROM news');
 });

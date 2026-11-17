@@ -118,12 +118,15 @@ export async function dispatch(request) {
     return Response.redirect(login, 302);
   }
   const forwarded = new Request(request, { headers });
-  return worker.fetch(forwarded, {
+
+return worker.fetch(forwarded, {
   DB: service?.DB,
   ADMIN_EMAIL: process.env.ADMIN_EMAIL,
-  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
-  OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
-  SIGN_IN_PATH: '/login',
+
+  // DeepL API
+  DEEPL_API_KEY: process.env.DEEPL_API_KEY,
+
+  SIGN_IN_PATH: "/login",
   ASSETS: editorialAssets,
 });
 }

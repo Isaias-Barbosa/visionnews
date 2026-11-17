@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Gestão de Usuários — Administração — VisionNews</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&amp;family=DM+Sans:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/admin/admin.css">
+<script src="/admin/usuarios.js" defer></script>
+</head>
+<body class="adminBody">
+<header class="adminHeader">
+  <div style="display:flex;align-items:center;gap:15px;flex-wrap:wrap">
+    <a class="logo" href="/">VISION<span>NEWS</span></a>
+    <span class="adminBadge">USUÁRIOS</span>
+  </div>
+  <nav class="adminNav">
+    <a href="/admin">Visão Geral</a>
+    <a href="/admin/usuarios" class="active">Usuários</a>
+    <a href="/admin/rss">Fontes RSS</a>
+    <a href="/dashboard">Dashboard editorial ↗</a>
+  </nav>
+</header>
+<main class="adminMain">
+  <div class="adminTop">
+    <div>
+      <span class="eyebrow">GESTÃO DO PORTAL</span>
+      <h1>Gestão de Usuários<span>.</span></h1>
+      <p>Acompanhe os usuários cadastrados, credenciais de acesso e a equipe de redação do VisionNews.</p>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button class="outlineButton" id="refreshUsers" type="button">Atualizar lista</button>
+    </div>
+  </div>
+
+  <p id="usersStatus" role="status">Consultando usuários…</p>
+
+  <div class="adminStats" id="usersStats">
+    <div>
+      <strong id="statTotal">0</strong>
+      <span>TOTAL DE CONTAS</span>
+    </div>
+    <div>
+      <strong id="statEditors">0</strong>
+      <span>EQUIPE EDITORIAL (EDITORES)</span>
+    </div>
+    <div>
+      <strong id="statVerified">0</strong>
+      <span>LEITORES VERIFICADOS</span>
+    </div>
+  </div>
+
+  <div class="managementGrid usersGrid">
+    <section class="editorPanel usersPanel">
+      <div class="usersToolbar">
+        <div class="usersSearchWrap">
+          <input type="search" id="userSearch" placeholder="Buscar por nome ou e-mail…" aria-label="Buscar usuários">
+        </div>
+        <div class="usersFilterTabs" role="tablist">
+          <button type="button" class="usersFilterBtn selected" data-role="all">Todos</button>
+          <button type="button" class="usersFilterBtn" data-role="admin">Admins</button>
+          <button type="button" class="usersFilterBtn" data-role="editor">Editores</button>
+          <button type="button" class="usersFilterBtn" data-role="user">Leitores</button>
+        </div>
+      </div>
+
+      <div class="usersCountNotice" id="usersCountNotice">Carregando…</div>
+
+      <div id="usersList" class="usersList" role="region" aria-live="polite"></div>
+    </section>
+
+    <section class="editorPanel">
+      <h2>Autorizar novo editor</h2>
+      <p>Conceda permissão de redação para que o usuário possa redigir matérias, reviews e gerenciar a programação de exibição no dashboard editorial.</p>
+      
+      <form id="addUserForm">
+        <label>
+          E-mail do novo editor
+          <input id="newEditorEmail" type="email" maxlength="254" required placeholder="editor@exemplo.com">
+        </label>
+        <button class="primary" id="btnSubmitEditor" type="submit">Autorizar acesso editorial</button>
+      </form>
+      
+      <p class="fieldHint">O usuário terá acesso às ferramentas da redação em <code>/dashboard</code>. O painel de administração geral continua exclusivo para administradores.</p>
+      <p id="formFeedback" role="status"></p>
+
+      <div class="adminRolesInfo">
+        <h3>Níveis de Permissão</h3>
+        <ul>
+          <li><strong>Administrador:</strong> Acesso irrestrito a configurações, auditoria de usuários e visão geral do sistema.</li>
+          <li><strong>Editor:</strong> Acesso à redação editorial, criação e edição de matérias, reviews, calendário e fontes RSS.</li>
+          <li><strong>Leitor:</strong> Acesso ao portal público, watchlist personalizada ("Meus Animes") e leituras salvas.</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+</main>
+</body>
+</html>

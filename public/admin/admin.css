@@ -247,3 +247,244 @@
   .animeSuggestGrid { grid-template-columns: 1fr 1fr; }
 }
 
+
+
+/* Navegação do Painel Administrativo */
+.adminNav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.adminNav a {
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 8px 12px;
+  border-radius: 4px;
+  transition: all .2s ease;
+  white-space: nowrap;
+}
+.adminNav a:hover {
+  color: white;
+  background: #ffffff0a;
+}
+.adminNav a.active {
+  color: var(--lime);
+  background: #d9ff6014;
+  font-weight: 600;
+  border: 1px solid #d9ff6033;
+}
+
+/* Gestão de Usuários */
+.usersGrid {
+  grid-template-columns: 1.6fr 1fr;
+}
+.usersPanel {
+  padding: 24px;
+}
+.usersToolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.usersSearchWrap {
+  flex: 1 1 240px;
+}
+.usersSearchWrap input {
+  width: 100%;
+  margin: 0;
+}
+.usersFilterTabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.usersFilterBtn {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  padding: 8px 14px;
+  font-size: 11px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.usersFilterBtn:hover {
+  border-color: #4f586d;
+  color: white;
+}
+.usersFilterBtn.selected {
+  background: var(--lime);
+  color: #0d1017;
+  border-color: var(--lime);
+  font-weight: 700;
+}
+.usersCountNotice {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.usersList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.userCard {
+  background: #0d1017;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  transition: border-color .15s;
+}
+.userCard:hover {
+  border-color: #424c5e;
+}
+.userCardMain {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.userAvatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #1e2535;
+  color: var(--lime);
+  font: 700 15px 'DM Sans', sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid #364157;
+}
+.userInfo {
+  min-width: 0;
+}
+.userHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.userName {
+  font-size: 16px;
+  margin: 0;
+  color: white;
+  font-weight: 600;
+}
+.userBadges {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.userBadge {
+  font-size: 8px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 3px 7px;
+  border-radius: 3px;
+}
+.userBadge.roleAdmin {
+  background: #d9ff601a;
+  color: var(--lime);
+  border: 1px solid #d9ff6040;
+}
+.userBadge.roleEditor {
+  background: #e7bc751c;
+  color: #f5cf8c;
+  border: 1px solid #e7bc7544;
+}
+.userBadge.roleUser {
+  background: #ffffff0a;
+  color: #9da7bb;
+  border: 1px solid #ffffff14;
+}
+.verifyPill {
+  font-size: 8px;
+  padding: 3px 6px;
+  border-radius: 3px;
+}
+.verifyPill.verified {
+  color: #55e69e;
+  background: #55e69e12;
+}
+.verifyPill.pending {
+  color: #d19760;
+  background: #d1976012;
+}
+.userEmail {
+  font-size: 12px;
+  color: #a1abc2;
+  margin: 4px 0 6px;
+  word-break: break-all;
+}
+.userMeta {
+  font-size: 10px;
+  color: var(--muted);
+}
+.userCardActions {
+  flex-shrink: 0;
+}
+.userCardActions button {
+  font-size: 11px;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+.userCardActions .btnPromote {
+  border-color: #d9ff6055;
+  color: var(--lime);
+}
+.userCardActions .btnPromote:hover {
+  background: #d9ff6012;
+}
+.adminRolesInfo {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.adminRolesInfo h3 {
+  font-size: 14px;
+  color: white;
+  margin-bottom: 12px;
+}
+.adminRolesInfo ul {
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.adminRolesInfo li strong {
+  color: #c9cfdb;
+}
+
+@media (max-width: 900px) {
+  .usersGrid {
+    grid-template-columns: 1fr;
+  }
+  .userCard {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .userCardActions {
+    width: 100%;
+  }
+  .userCardActions button {
+    width: 100%;
+  }
+}

@@ -12,6 +12,7 @@ const origin = process.env.BETTER_AUTH_URL ||
 const editorialAssets = {
  '/admin/index.html': {body:readFileSync(new URL('../public/admin/index.html',import.meta.url),'utf8'),type:'text/html; charset=utf-8'},
  '/admin/rss.html': {body:readFileSync(new URL('../public/admin/rss.html',import.meta.url),'utf8'),type:'text/html; charset=utf-8'},
+ '/admin/usuarios.html': {body:readFileSync(new URL('../public/admin/usuarios.html',import.meta.url),'utf8'),type:'text/html; charset=utf-8'},
  '/dashboard/index.html': {body:readFileSync(new URL('../public/dashboard/index.html',import.meta.url),'utf8'),type:'text/html; charset=utf-8'},
  '/rss.html': {body:readFileSync(new URL('../public/rss.html',import.meta.url),'utf8'),type:'text/html; charset=utf-8'}
 };
@@ -51,7 +52,7 @@ export async function dispatch(request) {
   headers.set('oai-authenticated-user-id',session.user.id);
   headers.set('oai-authenticated-user-email',session.user.email);
  }
- const privateMatch = url.pathname.match(/^\/(admin(?:\/rss)?|dashboard|rss)(?:\/index\.html|\/|\.html)?$/);
+ const privateMatch = url.pathname.match(/^\/(admin(?:\/(?:rss|usuarios|users))?|dashboard|rss)(?:\/index\.html|\/|\.html)?$/);
  if (session?.user && !session.user.emailVerified && privateMatch && ['GET','HEAD'].includes(request.method)) {
   const login = new URL('/login',url.origin);
   login.search = new URLSearchParams({next:'/'+privateMatch[1],reason:'verification'});

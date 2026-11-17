@@ -271,3 +271,52 @@ test('RSS drafts keep the feed cover and can be published in bulk', async () => 
   db.exec('DELETE FROM rss_feeds');
   db.exec('DELETE FROM news');
 });
+
+test('admin users page and users api list users and protect routes', async () => {
+  // 1. API /api/admin/users
+  const unauth = await worker.fetch(new Request('https://vision.test/api/admin/users'), env);
+  assert.equal(unauth.status, 401);
+
+  const nonAdmin = await worker.fetch(request('/api/admin/users', 'GET', null, { 'oai-authenticated-user-email': 'other@example.com' }), env);
+  assert.equal(nonAdmin.status, 403);
+
+  const adminRes = await worker.fetch(request('/api/admin/users'), env);
+  assert.equal(adminRes.status, 200);
+  const data = await adminRes.json();
+  assert(Array.isArray(data.users));
+  assert(data.stats);
+  assert(data.users.some(u => u.role === 'admin' && u.email === env.ADMIN_EMAIL));
+
+  // Concede acesso a um novo editor e confere retorno
+  const addEditor = await worker.fetch(request('/api/admin/editors', 'POST', { email: 'novoeditor@example.com' }), env);
+  assert.equal(addEditor.status, 200);
+
+  const afterAdd = await (await worker.fetch(request('/api/admin/users'), env)).json();
+  assert(afterAdd.users.some(u => u.email === 'novoeditor@example.com' && u.role === 'editor'));
+
+  // Remove editor
+  await worker.fetch(request('/api/admin/editors', 'DELETE', { email: 'novoeditor@example.com' }), env);
+
+  // 2. Proteção da página /admin/usuarios
+  const anonPage = await worker.fetch(new Request('https://vision.test/admin/usuarios'), env);
+  assert.equal(anonPage.status, 302);
+
+  const nonAdminPage = await worker.fetch(request('/admin/usuarios', 'GET', null, { 'oai-authenticated-user-email': 'other@example.com' }), env);
+  assert.equal(nonAdminPage.status, 403);
+
+  const adminPage = await worker.fetch(request('/admin/usuarios'), env);
+  assert.equal(adminPage.status, 200);
+  const adminHtml = await adminPage.text();
+  assert(adminHtml.includes('Gestão de Usuários'));
+  assert(adminHtml.includes('newEditorEmail'));
+
+  // 3. Rota de notícias (página pública de leitura)
+  const newsPage = await worker.fetch(new Request('https://vision.test/noticia'), env);
+  assert.equal(newsPage.status, 200);
+  const newsHtml = await newsPage.text();
+  assert(newsHtml.includes('articleMainTitle'));
+  assert(newsHtml.includes('noticia.js'));
+
+  const newsPlural = await worker.fetch(new Request('https://vision.test/noticias'), env);
+  assert.equal(newsPlural.status, 200);
+});

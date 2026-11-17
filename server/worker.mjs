@@ -751,16 +751,21 @@ export async function handle(request, env) {
     const adminRssPage = /^\/admin\/rss(?:\.html|\/index\.html)?\/?$/.test(
       path,
     );
+    const adminUsersPage = /^\/admin\/(?:usuarios|users)(?:\.html|\/index\.html)?\/?$/.test(
+      path,
+    );
 
     if (
-      (privatePage || rssPage || adminRssPage) &&
+      (privatePage || rssPage || adminRssPage || adminUsersPage) &&
       ["GET", "HEAD"].includes(request.method)
     ) {
       const target = rssPage
         ? "/rss"
         : adminRssPage
           ? "/admin/rss"
-          : "/" + privatePage;
+          : adminUsersPage
+            ? "/admin/usuarios"
+            : "/" + privatePage;
 
       if (!request.headers.get("oai-authenticated-user-id")) {
         const login = new URL(
@@ -771,7 +776,7 @@ export async function handle(request, env) {
         return Response.redirect(login, 302);
       }
 
-      const adminOnly = adminRssPage || privatePage === "admin";
+      const adminOnly = adminRssPage || adminUsersPage || privatePage === "admin";
 
       if (!(adminOnly ? canAdmin(request, env) : await canEdit(request, env)))
         return json({ error: "Acesso restrito a esta área." }, 403);
@@ -781,7 +786,9 @@ export async function handle(request, env) {
           ? "/rss.html"
           : adminRssPage
             ? "/admin/rss.html"
-            : target + "/index.html",
+            : adminUsersPage
+              ? "/admin/usuarios.html"
+              : target + "/index.html",
         request.method === "HEAD",
         env.ASSETS,
       );
@@ -1125,6 +1132,103 @@ export async function handle(request, env) {
           database: "online",
           timezone: "America/Sao_Paulo",
         });
+      }
+
+      if (path === "/api/admin/users" && request.method === "GET") {
+        const adminEmail = (env.ADMIN_EMAIL || "").toLowerCase().trim();
+        let editorRows = [];
+        try {
+          const res = await env.DB.prepare(
+            "SELECT email, created_at FROM editorial_accounts ORDER BY email",
+          ).all();
+          editorRows = res?.results || [];
+        } catch {
+          editorRows = [];
+        }
+
+        const editorMap = new Map();
+        for (const row of editorRows) {
+          if (row?.email) {
+            editorMap.set(row.email.toLowerCase().trim(), row.created_at);
+          }
+        }
+
+        let userRows = [];
+        try {
+          const isPostgres = env.DB?.__postgres === true;
+          const userTable = isPostgres ? '"user"' : 'user';
+          const { results } = await env.DB.prepare(
+            `SELECT id, name, email, "emailVerified", image, "createdAt" FROM ${userTable} ORDER BY "createdAt" DESC LIMIT 500`,
+          ).all();
+          userRows = results || [];
+        } catch {
+          try {
+            const { results } = await env.DB.prepare(
+              "SELECT id, name, email, emailVerified, image, createdAt FROM user ORDER BY createdAt DESC LIMIT 500",
+            ).all();
+            userRows = results || [];
+          } catch {
+            userRows = [];
+          }
+        }
+
+        const knownEmails = new Set();
+        const users = [];
+
+        for (const u of userRows) {
+          const email = String(u.email || "").toLowerCase().trim();
+          if (!email) continue;
+          knownEmails.add(email);
+          const isAdmin = Boolean(adminEmail && email === adminEmail);
+          const isEditor = editorMap.has(email);
+          users.push({
+            id: u.id,
+            name: u.name || email.split("@")[0],
+            email,
+            emailVerified: Boolean(u.emailVerified ?? u["emailVerified"]),
+            image: u.image || null,
+            createdAt: u.createdAt || u["createdAt"] || null,
+            role: isAdmin ? "admin" : isEditor ? "editor" : "user",
+          });
+        }
+
+        if (adminEmail && !knownEmails.has(adminEmail)) {
+          users.unshift({
+            id: "admin-root",
+            name: "Administrador Geral",
+            email: adminEmail,
+            emailVerified: true,
+            image: null,
+            createdAt: new Date().toISOString(),
+            role: "admin",
+          });
+          knownEmails.add(adminEmail);
+        }
+
+        for (const [editorEmail, createdAt] of editorMap.entries()) {
+          if (!knownEmails.has(editorEmail)) {
+            users.push({
+              id: "editor-" + editorEmail,
+              name: editorEmail.split("@")[0],
+              email: editorEmail,
+              emailVerified: false,
+              image: null,
+              createdAt: createdAt || new Date().toISOString(),
+              role: editorEmail === adminEmail ? "admin" : "editor",
+            });
+            knownEmails.add(editorEmail);
+          }
+        }
+
+        const stats = {
+          total: users.length,
+          admins: users.filter((u) => u.role === "admin").length,
+          editors: users.filter((u) => u.role === "editor").length,
+          readers: users.filter((u) => u.role === "user").length,
+          verified: users.filter((u) => u.emailVerified).length,
+        };
+
+        return json({ users, stats });
       }
 
       // ========================================
@@ -1971,7 +2075,13 @@ export async function handle(request, env) {
     if (!["GET", "HEAD"].includes(request.method))
       return new Response("Método não permitido", { status: 405 });
     return serve(
-      path === "/" ? "/index.html" : path === "/login" ? "/login.html" : path,
+      path === "/"
+        ? "/index.html"
+        : path === "/login"
+          ? "/login.html"
+          : path === "/noticia" || path === "/noticias"
+            ? "/noticia.html"
+            : path,
       request.method === "HEAD",
       env.ASSETS,
     );

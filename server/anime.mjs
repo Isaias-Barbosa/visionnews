@@ -105,6 +105,7 @@ export function cleanDescription(value, max = 600) {
       };
       return map[entity.toLowerCase()] || " ";
     })
+    .replace(/\s+([.,;:!?])/g, "$1")
     .replace(/\s+/g, " ")
     .trim();
 

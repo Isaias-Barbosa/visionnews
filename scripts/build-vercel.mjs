@@ -6,6 +6,7 @@ rmSync('dist/vercel/admin/index.html');
 rmSync('dist/vercel/dashboard/index.html');
 rmSync('dist/vercel/rss.html');
 rmSync('dist/vercel/admin/rss.html');
+rmSync('dist/vercel/admin/usuarios.html');
 if (process.env.VERCEL_ENV==='production' && process.env.DATABASE_URL) {
  const {migrate} = await import('./migrate-postgres.mjs');
  await migrate();

@@ -329,7 +329,9 @@
                     ><button type="button" data-block="blockquote">
                       Citação</button
                     ><button type="button" id="insertLink">Link ↗</button
-                    ><button type="button" data-command="unlink">
+                    >
+                    <button type="button" id="insertVideo">Vídeo ▶</button>
+                    <button type="button" data-command="unlink">
                       Sem link</button
                     ><button
                       type="button"
@@ -356,6 +358,20 @@
                     ><button id="cancelLink" type="button">Cancelar</button
                     ><span id="editorLinkError" role="status"></span>
                   </div>
+
+<div id="videoFields" class="linkFields" hidden>
+  <label for="editorVideo">Link do YouTube ou código iframe</label>
+  <input
+    id="editorVideo"
+    type="text"
+    placeholder="https://www.youtube.com/watch?v=..."
+    autocomplete="off"
+  />
+  <button id="applyVideo" type="button">Inserir vídeo</button>
+  <button id="cancelVideo" type="button">Cancelar</button>
+  <span id="editorVideoError" role="status"></span>
+</div>
+
                   <div
                     id="richEditor"
                     class="richEditor"

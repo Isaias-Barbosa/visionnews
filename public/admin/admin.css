@@ -488,3 +488,62 @@
     width: 100%;
   }
 }
+
+/* Incorporação de vídeos no editor */
+.richEditor .videoEmbed {
+  display: block;
+  width: min(100%, 680px);
+  margin: 22px auto;
+  border: 1px solid #394152;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #080b11;
+}
+
+.richEditor .videoEmbedPreview,
+.articleVideoRatio {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #080b11;
+}
+
+.richEditor .videoEmbed iframe,
+.articleVideoRatio iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.richEditor .videoEmbed {
+  cursor: default;
+}
+
+#videoFields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+#videoFields label {
+  flex-basis: 100%;
+}
+
+#videoFields input {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+#videoFields span {
+  flex-basis: 100%;
+  color: #ff9a9a;
+  font-size: 11px;
+}
+
+.richEditor.richExpanded {
+  min-height: 75vh;
+  max-height: none;
+}

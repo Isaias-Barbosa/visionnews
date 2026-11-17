@@ -242,8 +242,16 @@ function requestOnce(url, address) {
     const request = transport.request(url, {
       method: 'GET',
       agent: false,
-      lookup: (_hostname, _options, callback) => {
-        callback(null, address.address, isIP(address.address));
+      lookup: (_hostname, options, callback) => {
+        const family = isIP(address.address);
+
+        // Node 22+ pede todos os endereços (options.all) ao conectar com happy eyeballs.
+        if (options && options.all) {
+          callback(null, [{ address: address.address, family }]);
+          return;
+        }
+
+        callback(null, address.address, family);
       },
       headers: {
         'User-Agent': 'VisionNewsRSS/1.0',

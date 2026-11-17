@@ -6,6 +6,7 @@ import {
   fetchTrendingAnime,
   seasonFromQuarter,
 } from "./anime.mjs";
+import { translateTexts } from "./translation.mjs";
 
 const categories = ["Notícias", "Reviews", "Guias", "Cultura"];
 const statuses = ["draft", "published", "archived"];
@@ -738,6 +739,118 @@ function mapRssAlias(path) {
   return path;
 }
 
+
+function prepareNewsTranslation(news) {
+  const texts = [];
+  const setters = new Map();
+
+  const translated = {
+    title: news.title,
+    summary: news.summary,
+    topic: news.topic,
+    body: news.body,
+  };
+
+  function addText(key, value, setter) {
+    if (typeof value !== "string" || !value.trim()) return;
+
+    const id = `${news.id}:${key}`;
+
+    texts.push({ id, text: value });
+    setters.set(id, setter);
+  }
+
+  addText("title", news.title, (value) => {
+    translated.title = value;
+  });
+
+  addText("summary", news.summary, (value) => {
+    translated.summary = value;
+  });
+
+  addText("topic", news.topic, (value) => {
+    translated.topic = value;
+  });
+
+  if (news.body_format === "rich-v1") {
+    let document;
+
+    try {
+      document = VisionContent.validate(JSON.parse(news.body || ""));
+    } catch {
+      throw new Error(
+        `O conteúdo da notícia ${news.id} possui um documento rich-v1 inválido.`,
+      );
+    }
+
+    translated.body = document;
+
+    document.blocks.forEach((block, blockIndex) => {
+      function collectInline(nodes, prefix) {
+        nodes.forEach((node, nodeIndex) => {
+          // Imagens não são enviadas para tradução.
+          if (node.image !== undefined) return;
+
+          if (typeof node.text !== "string") return;
+
+          addText(
+            `body:${prefix}:${nodeIndex}`,
+            node.text,
+            (value) => {
+              node.text = value;
+            },
+          );
+        });
+      }
+
+      if (block.type === "ul" || block.type === "ol") {
+        block.items.forEach((item, itemIndex) => {
+          collectInline(
+            item,
+            `${blockIndex}:item:${itemIndex}`,
+          );
+        });
+      } else {
+        collectInline(
+          block.children,
+          `${blockIndex}:children`,
+        );
+      }
+    });
+  } else {
+    addText("body", news.body, (value) => {
+      translated.body = value;
+    });
+  }
+
+  return {
+    texts,
+
+    build(translations) {
+      for (const item of translations) {
+        const setter = setters.get(item.id);
+
+        if (!setter) {
+          throw new Error("Foi recebida uma tradução desconhecida.");
+        }
+
+        setter(item.text);
+      }
+
+      return {
+        title: translated.title,
+        summary: translated.summary,
+        topic: translated.topic,
+        body:
+          news.body_format === "rich-v1"
+            ? JSON.stringify(translated.body)
+            : translated.body,
+      };
+    },
+  };
+}
+
+
 export async function handle(request, env) {
   const url = new URL(request.url),
     path = url.pathname,
@@ -896,6 +1009,238 @@ export async function handle(request, env) {
           request.headers.get("Sec-Fetch-Site") === "cross-site")
       )
         return json({ error: "Origem da solicitação não permitida." }, 403);
+
+
+if (
+  path === "/api/editor/news/translate-preview" &&
+  request.method === "POST"
+) {
+  try {
+    const input = await request.json();
+
+    const ids = input?.ids;
+    const versions = input?.versions;
+
+    if (
+      !Array.isArray(ids) ||
+      ids.length < 1 ||
+      ids.length > 5 ||
+      !ids.every(
+        (id) => Number.isSafeInteger(id) && id > 0,
+      ) ||
+      new Set(ids).size !== ids.length ||
+      !versions ||
+      typeof versions !== "object" ||
+      Array.isArray(versions)
+    ) {
+      return json(
+        { error: "Selecione entre 1 e 5 notícias válidas." },
+        400,
+      );
+    }
+
+    // Cada notícia precisa ter a versão que estava aberta
+    // no momento em que foi selecionada.
+    for (const id of ids) {
+      if (
+        !Object.hasOwn(versions, String(id)) ||
+        !Number.isSafeInteger(versions[String(id)]) ||
+        versions[String(id)] < 1
+      ) {
+        return json(
+          {
+            error: `A versão da notícia ${id} não foi informada corretamente.`,
+          },
+          400,
+        );
+      }
+    }
+
+    const placeholders = ids.map(() => "?").join(",");
+
+    const { results: newsRows } = await env.DB.prepare(
+      `SELECT * FROM news WHERE id IN (${placeholders})`,
+    )
+      .bind(...ids)
+      .all();
+
+    if (!Array.isArray(newsRows) || newsRows.length !== ids.length) {
+      return json(
+        {
+          error: "Uma ou mais notícias selecionadas não foram encontradas.",
+        },
+        404,
+      );
+    }
+
+    const newsById = new Map(
+      newsRows.map((news) => [Number(news.id), news]),
+    );
+
+    const selectedNews = ids.map((id) => newsById.get(id));
+
+    // A operação inteira é rejeitada se houver uma notícia
+    // que não seja rascunho ou esteja em outra versão.
+    for (const news of selectedNews) {
+      if (news.status !== "draft") {
+        return json(
+          {
+            error: `A notícia ${news.id} não é um rascunho. Nenhuma tradução foi realizada.`,
+          },
+          409,
+        );
+      }
+
+      if (news.version !== versions[String(news.id)]) {
+        return json(
+          {
+            error: `A notícia ${news.id} foi modificada. Atualize a página antes de traduzir.`,
+          },
+          409,
+        );
+      }
+    }
+
+    const prepared = selectedNews.map((news) => ({
+      news,
+      translation: prepareNewsTranslation(news),
+    }));
+
+    const allTexts = prepared.flatMap(
+      (item) => item.translation.texts,
+    );
+
+    if (!allTexts.length) {
+      return json(
+        { error: "Não existem textos disponíveis para tradução." },
+        400,
+      );
+    }
+
+    if (allTexts.length > 500) {
+      return json(
+        {
+          error: "A seleção contém muitos trechos de texto. Divida a tradução em lotes menores.",
+        },
+        413,
+      );
+    }
+
+    const totalCharacters = allTexts.reduce(
+      (total, item) => total + item.text.length,
+      0,
+    );
+
+    if (totalCharacters > 70000) {
+      return json(
+        {
+          error: "O conteúdo selecionado excede o limite de caracteres para tradução.",
+        },
+        413,
+      );
+    }
+
+    if (!env.GEMINI_API_KEY) {
+      return json(
+        {
+          error: "A chave da API Gemini não está configurada no servidor.",
+        },
+        503,
+      );
+    }
+
+    // A tradução acontece somente em memória.
+    const translations = await translateTexts(allTexts, env);
+
+    const translatedById = new Map(
+      translations.map((item) => [item.id, item]),
+    );
+
+    const previews = prepared.map(({ news, translation }) => {
+      const translatedTexts = translation.texts.map((item) => {
+        const result = translatedById.get(item.id);
+
+        if (!result) {
+          throw new Error(
+            `A tradução do trecho ${item.id} não foi encontrada.`,
+          );
+        }
+
+        return result;
+      });
+
+      const translated = translation.build(translatedTexts);
+
+      return {
+        id: news.id,
+        version: news.version,
+        body_format: news.body_format || "plain",
+
+        original: {
+          title: news.title,
+          summary: news.summary,
+          topic: news.topic,
+          body: news.body,
+        },
+
+        translated,
+      };
+    });
+
+    // Consulta novamente o banco depois da tradução.
+    // Isso impede que uma prévia baseada em conteúdo antigo
+    // seja apresentada como se ainda estivesse atualizada.
+    const { results: latestRows } = await env.DB.prepare(
+      `SELECT id, status, version FROM news WHERE id IN (${placeholders})`,
+    )
+      .bind(...ids)
+      .all();
+
+    const latestById = new Map(
+      (latestRows || []).map((news) => [
+        Number(news.id),
+        news,
+      ]),
+    );
+
+    const conflicts = ids.filter((id) => {
+      const latest = latestById.get(id);
+      const original = newsById.get(id);
+
+      return (
+        !latest ||
+        latest.status !== "draft" ||
+        latest.version !== original.version
+      );
+    });
+
+    if (conflicts.length) {
+      return json(
+        {
+          error: "Uma ou mais notícias foram modificadas durante a tradução. Gere uma nova prévia.",
+          conflicts,
+        },
+        409,
+      );
+    }
+
+    return json({
+      success: true,
+      message: "Tradução concluída. Revise a prévia antes de salvar.",
+      items: previews,
+    });
+  } catch (error) {
+    console.error("Erro ao traduzir notícias:", error);
+
+    return json(
+      {
+        error: "Não foi possível traduzir as notícias. Verifique a configuração da API e tente novamente.",
+      },
+      502,
+    );
+  }
+}
+
 
       // ========================================
       // ANILIST / ANICHART - SUGESTÕES E TEMPORADA

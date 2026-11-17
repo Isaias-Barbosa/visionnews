@@ -1140,10 +1140,10 @@ if (
       );
     }
 
-    if (!env.OPENROUTER_API_KEY) {
+    if (!env.DEEPL_API_KEY && !env.DEEPL_AUTH_KEY) {
   return json(
     {
-      error: "A chave OPENROUTER_API_KEY não está configurada no servidor.",
+      error: "A chave DEEPL_API_KEY não está configurada no servidor.",
     },
     503,
   );
@@ -1229,15 +1229,18 @@ if (
       items: previews,
     });
   } catch (error) {
-    console.error("Erro ao traduzir notícias:", error);
+  console.error("Erro ao traduzir notícias:", error);
 
-    return json(
-      {
-        error: "Não foi possível traduzir as notícias. Verifique a configuração da API e tente novamente.",
-      },
-      502,
-    );
-  }
+  return json(
+    {
+      error:
+        error instanceof Error
+          ? error.message
+          : "Não foi possível traduzir as notícias pelo DeepL.",
+    },
+    502,
+  );
+}
 }
 
 

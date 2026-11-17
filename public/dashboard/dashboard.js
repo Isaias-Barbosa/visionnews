@@ -221,7 +221,6 @@ function edit(item) {
   dirty = false;
   renderList();
 }
-function switchModule(next) {
 
 function switchModule(next) {
   if (busy || !allowLeave()) return;
@@ -230,29 +229,34 @@ function switchModule(next) {
   dirty = false;
   current = null;
 
+  const isRss = next === 'rss';
+
+  // Fecha os formulários editoriais
   $('editorForm').hidden = true;
   $('scheduleForm').hidden = true;
   $('recommendationForm').hidden = true;
-  $('editorEmpty').hidden = false;
+  $('editorEmpty').hidden = true;
 
-  const isRss = next === 'rss';
-
-  // Alterna a área RSS e a área editorial
+  // Alterna entre o painel RSS e o painel editorial
   $('rssPanel').hidden = !isRss;
   $('globalStatus').hidden = isRss;
   $('stats').hidden = isRss;
   document.querySelector('.adminWorkspace').hidden = isRss;
   $('newArticle').hidden = isRss;
 
-  // Atualiza a aba selecionada
-  document.querySelectorAll('[data-module]').forEach(b => {
-    b.classList.toggle('selected', b.dataset.module === next);
-    b.setAttribute('aria-pressed', String(b.dataset.module === next));
+  // Atualiza a navegação
+  document.querySelectorAll('[data-module]').forEach(button => {
+    const selected = button.dataset.module === next;
+
+    button.classList.toggle('selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
   });
 
-  // Não tenta renderizar a lista editorial na aba RSS
+  // Se for RSS, não executa a renderização editorial
   if (isRss) return;
 
+  // Configura a área editorial selecionada
+  $('editorEmpty').hidden = false;
   $('categoryFilter').hidden = next !== 'news';
   $('adminSearch').value = '';
   $('statusFilter').value = 'all';
@@ -266,7 +270,6 @@ function switchModule(next) {
   renderList();
 }
 
-}
 function renderList() {
   const term = $("adminSearch").value.trim().toLowerCase(),
     status = $("statusFilter").value,

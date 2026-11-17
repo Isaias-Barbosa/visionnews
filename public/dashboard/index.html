@@ -38,9 +38,12 @@
           ><button type="button" data-module="recommendations">
             Recomendação do dia
           </button>
-          <button type="button" id="rssTab">Importação RSS</button>
-
-<section id="rssPanel" class="dashboardPanel" hidden>
+         <button type="button" id="rssTab" data-module="rss">
+  Importação RSS
+</button>
+    </nav>
+        <div class="deskContent">
+            <section id="rssPanel" class="dashboardPanel" hidden>
   <div class="panelHeader">
     <div>
       <h2>Importação RSS</h2>
@@ -100,9 +103,6 @@
     </div>
   </div>
 </section>
-
-        </nav>
-        <div class="deskContent">
           <p id="globalStatus" role="status" aria-live="polite">
             Conectando à redação…
           </p>

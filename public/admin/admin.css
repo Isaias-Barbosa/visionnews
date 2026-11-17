@@ -88,3 +88,162 @@
 .newsRow .newsItem { flex: 1 1 auto; min-width: 0; }
 .adminBody .newsRow .bulkCheck { margin: 22px 0 0 14px; flex: none; }
 .bulkCheckPlaceholder { width: 30px; flex: none; }
+
+/* Sugestões do AniList e importação de temporada */
+.animeSuggest {
+  padding: 22px;
+  border-bottom: 1px solid var(--line);
+}
+.animeSuggest[hidden] { display: none !important; }
+.animeSuggestHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.animeSuggestHead h2 {
+  font-size: 26px;
+  line-height: 1.1;
+  margin: 10px 0;
+}
+.animeSuggestHead p {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.7;
+  max-width: 72ch;
+  margin: 0;
+}
+.animeSuggestHead .outlineButton {
+  width: auto;
+  margin: 0;
+  white-space: nowrap;
+}
+.animeSuggestGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+}
+.animeSuggestCard {
+  border: 1px solid var(--line);
+  background: #0d1017;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+.animeSuggestCard > img {
+  width: 100%;
+  height: 118px;
+  object-fit: cover;
+  display: block;
+}
+.animeSuggestBody {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+.animeSuggestBody small {
+  color: var(--lime);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.animeSuggestBody h3 {
+  font-size: 17px;
+  line-height: 1.2;
+  margin: 0;
+}
+.animeSuggestBody p {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0;
+}
+.animeSuggestBody .outlineButton {
+  margin-top: auto;
+  width: 100%;
+  padding: 8px;
+  font-size: 10px;
+}
+.animeSuggestEmpty {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 16px;
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.animeSuggestStatus {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 12px;
+  line-height: 1.7;
+}
+.animeImportControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 16px;
+}
+.animeImportControls label {
+  margin: 0;
+  font-size: 10px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.animeImportControls input { width: 120px; }
+.animeImportControls select { width: auto; min-width: 190px; }
+.animeImportControls button { width: auto; margin: 0; }
+.animeImportActions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.animeImportActions[hidden] { display: none !important; }
+.animeImportActions button { width: auto; margin: 0; }
+.seasonImportCard { position: relative; cursor: pointer; }
+.seasonImportCard.imported { opacity: .55; cursor: default; }
+.seasonImportCheck {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  background: #0d1017cc;
+  border-radius: 3px;
+  padding: 3px;
+  line-height: 0;
+}
+.adminBody .seasonImportCheck input {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--lime);
+}
+.animeTag {
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 4px 6px;
+  align-self: flex-start;
+  margin-top: auto;
+}
+.animeTag.suggest { color: var(--lime); border-color: #d9ff6033; }
+@media (max-width: 640px) {
+  .animeSuggestHead { flex-direction: column; }
+  .animeSuggestGrid { grid-template-columns: 1fr 1fr; }
+}
+

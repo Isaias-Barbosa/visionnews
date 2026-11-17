@@ -38,7 +38,12 @@ let news = [],
   pendingRss = null,
   rssWorkspace = null,
   bulkSelected = new Set(),
-  bulkVisible = [];
+  bulkVisible = [],
+  trendingItems = [],
+  trendingLoading = false,
+  seasonItems = [],
+  seasonSelected = new Set(),
+  seasonLoading = false;
 const names = {
     draft: "Rascunho",
     published: "Publicado",
@@ -200,9 +205,291 @@ function rssPrefill(item, feed) {
   };
 }
 
+function trendingSummary(anime) {
+  let summary = String(anime?.summary || "").trim();
+
+  if (summary.length < 15) {
+    const genres = (anime?.genres || []).slice(0, 3).join(", ");
+    summary = `${anime?.title || "Este anime"} está entre os animes em alta no AniList${
+      genres ? ` (${genres})` : ""
+    }. Revise a sinopse oficial e escreva por que vale a pena assistir.`;
+  }
+
+  if (summary.length > 600) summary = summary.slice(0, 597).trimEnd() + "…";
+  return summary;
+}
+
+function renderTrending() {
+  $("trendingList").innerHTML = trendingItems.length
+    ? trendingItems
+        .map(
+          (anime) => `<article class="animeSuggestCard">
+            ${
+              anime.cover
+                ? `<img src="${esc(anime.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+                : ""
+            }
+            <div class="animeSuggestBody">
+              <small>${esc(
+                [anime.format, anime.score ? `Nota ${anime.score}` : ""]
+                  .filter(Boolean)
+                  .join(" · ") || "Anime",
+              )}</small>
+              <h3>${esc(anime.title)}</h3>
+              <p>${esc(String(anime.summary || "").slice(0, 150))}</p>
+              <button type="button" class="outlineButton" data-trending="${esc(
+                anime.anime_id,
+              )}">Usar sugestão</button>
+            </div>
+          </article>`,
+        )
+        .join("")
+    : '<p class="animeSuggestEmpty">Nenhuma sugestão carregada ainda.</p>';
+}
+
+async function loadTrending(force = false) {
+  if (trendingLoading) return;
+  if (!force && trendingItems.length) return;
+
+  trendingLoading = true;
+  $("trendingRefresh").disabled = true;
+  $("trendingStatus").textContent = "Carregando sugestões do AniList…";
+
+  try {
+    const { items } = await api("/api/editor/anime/trending?limit=12");
+    trendingItems = Array.isArray(items) ? items : [];
+    renderTrending();
+    $("trendingStatus").textContent = trendingItems.length
+      ? "Sugestões do AniList. A publicação continua manual e passa pela revisão."
+      : "O AniList não retornou animes em alta agora.";
+  } catch (error) {
+    $("trendingStatus").textContent = error.message;
+    renderTrending();
+  } finally {
+    trendingLoading = false;
+    $("trendingRefresh").disabled = false;
+  }
+}
+
+function applyTrending(animeId) {
+  if (!ready || busy) return;
+
+  const anime = trendingItems.find(
+    (item) => String(item.anime_id) === String(animeId),
+  );
+  if (!anime) return;
+  if (!allowLeave()) return;
+
+  edit(null);
+
+  $("recommendation_title").value = String(anime.title || "").slice(0, 160);
+  $("recommendation_summary").value = trendingSummary(anime);
+  $("recommendation_cover").value = anime.cover || "";
+  $("recommendation_status").value = "draft";
+
+  const streams = Array.isArray(anime.stream_links)
+    ? anime.stream_links.slice(0, streamFields.length)
+    : [];
+
+  for (const i of streamFields) {
+    $("streamName" + i).value = streams[i]?.name || "";
+    $("streamUrl" + i).value = streams[i]?.url || "";
+  }
+
+  dirty = true;
+  $("recommendationStatus").textContent =
+    "Sugestão do AniList carregada como rascunho. Confira a sinopse, os links e salve quando estiver pronto.";
+  $("recommendationForm").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderSeasonImport() {
+  const dayNamesShort = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+
+  $("seasonImportList").innerHTML = seasonItems.length
+    ? seasonItems
+        .map((item) => {
+          const checked = seasonSelected.has(item.anime_id);
+          const disabled = Boolean(item.imported);
+          return `<label class="animeSuggestCard seasonImportCard${
+            disabled ? " imported" : ""
+          }">
+            <span class="seasonImportCheck">
+              <input type="checkbox" data-season="${esc(
+                item.anime_id,
+              )}" aria-label="Selecionar ${esc(item.title)}" ${
+                checked ? "checked" : ""
+              } ${disabled ? "disabled" : ""}>
+            </span>
+            ${
+              item.cover
+                ? `<img src="${esc(item.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+                : ""
+            }
+            <div class="animeSuggestBody">
+              <small>${esc(dayNamesShort[item.weekday] || "Dia a confirmar")}${
+                item.time ? ` · ${esc(item.time)} BRT` : ""
+              } · ${esc(item.platform || "Plataforma a confirmar")}</small>
+              <h3>${esc(item.title)}</h3>
+              <p>${esc(
+                [item.episode, String(item.summary || "").slice(0, 140)]
+                  .filter(Boolean)
+                  .join(" · "),
+              )}</p>
+              ${
+                disabled
+                  ? '<span class="animeTag">Já no calendário</span>'
+                  : '<span class="animeTag suggest">Pronto para importar</span>'
+              }
+            </div>
+          </label>`;
+        })
+        .join("")
+    : '<p class="animeSuggestEmpty">Clique em “Buscar temporada” para consultar o AniList.</p>';
+
+  $("seasonImportList")
+    .querySelectorAll("[data-season]")
+    .forEach((box) => {
+      box.onchange = () => {
+        const id = String(box.dataset.season);
+        if (box.checked) seasonSelected.add(id);
+        else seasonSelected.delete(id);
+        updateSeasonImportBar();
+      };
+    });
+
+  updateSeasonImportBar();
+}
+
+function updateSeasonImportBar() {
+  const available = seasonItems.filter((item) => !item.imported);
+  const availableIds = new Set(available.map((item) => item.anime_id));
+
+  for (const id of [...seasonSelected])
+    if (!availableIds.has(id)) seasonSelected.delete(id);
+
+  const total = seasonSelected.size;
+  $("seasonImportActions").hidden = !seasonItems.length;
+  $("seasonImportSubmit").disabled = seasonLoading || total === 0;
+  $("seasonImportSubmit").textContent = total
+    ? `Importar ${total} selecionado${total === 1 ? "" : "s"}`
+    : "Importar selecionados";
+  $("seasonImportAll").checked =
+    available.length > 0 &&
+    available.every((item) => seasonSelected.has(item.anime_id));
+  $("seasonImportAll").indeterminate =
+    !$("seasonImportAll").checked &&
+    available.some((item) => seasonSelected.has(item.anime_id));
+}
+
+async function loadSeasonImport() {
+  if (seasonLoading) return;
+
+  const year = Number($("seasonImportYear").value);
+  const quarter = Number($("seasonImportQuarter").value);
+
+  if (!Number.isInteger(year) || year < 2020 || year > 2100) {
+    $("seasonImportStatus").textContent = "Informe um ano entre 2020 e 2100.";
+    return;
+  }
+
+  seasonLoading = true;
+  $("seasonImportFetch").disabled = true;
+  $("seasonImportSubmit").disabled = true;
+  $("seasonImportStatus").textContent =
+    "Consultando a temporada no AniList (mesma fonte do AniChart)…";
+
+  try {
+    const data = await api(
+      `/api/editor/anime/season?year=${year}&quarter=${quarter}`,
+    );
+    seasonItems = Array.isArray(data.items) ? data.items : [];
+    seasonSelected.clear();
+    renderSeasonImport();
+    $("seasonImportStatus").textContent = seasonItems.length
+      ? `${seasonItems.length} títulos com exibição semanal. Selecione os que deseja importar; todos entram como rascunho.`
+      : "Nenhum título com exibição semanal foi encontrado nessa temporada.";
+  } catch (error) {
+    seasonItems = [];
+    seasonSelected.clear();
+    renderSeasonImport();
+    $("seasonImportStatus").textContent = error.message;
+  } finally {
+    seasonLoading = false;
+    $("seasonImportFetch").disabled = false;
+    updateSeasonImportBar();
+  }
+}
+
+async function importSeason() {
+  if (seasonLoading || !seasonSelected.size) return;
+
+  const year = Number($("seasonImportYear").value);
+  const quarter = Number($("seasonImportQuarter").value);
+  const ids = [...seasonSelected];
+
+  if (
+    !confirm(
+      `Importar ${ids.length} exibição${ids.length === 1 ? "" : "ões"} como rascunho${
+        ids.length === 1 ? "" : "s"
+      }? Nada será publicado sem a sua revisão.`,
+    )
+  )
+    return;
+
+  seasonLoading = true;
+  $("seasonImportSubmit").disabled = true;
+  $("seasonImportAll").disabled = true;
+  $("seasonImportStatus").textContent = "Importando para o calendário…";
+
+  try {
+    const result = await api("/api/editor/anime/season/import", {
+      method: "POST",
+      body: JSON.stringify({ year, quarter, ids }),
+    });
+    const created = Array.isArray(result.created) ? result.created : [];
+    const skipped = Array.isArray(result.skipped) ? result.skipped : [];
+    const createdTitles = new Set(
+      created.map((item) => String(item.title || "").trim().toLowerCase()),
+    );
+
+    seasonItems = seasonItems.map((item) =>
+      createdTitles.has(item.title.trim().toLowerCase())
+        ? { ...item, imported: true }
+        : item,
+    );
+    seasonSelected.clear();
+    renderSeasonImport();
+
+    await load();
+
+    $("seasonImportStatus").textContent = `${created.length} exibição${
+      created.length === 1 ? "" : "ões"
+    } importada${created.length === 1 ? "" : "s"} como rascunho${
+      created.length === 1 ? "" : "s"
+    }. Revise e publique no calendário.${
+      skipped.length
+        ? ` ${skipped.length} ignorada${skipped.length === 1 ? "" : "s"}: ` +
+          skipped
+            .slice(0, 2)
+            .map(
+              (item) =>
+                `${item.title || "item"} (${String(item.reason || "").slice(0, 120)})`,
+            )
+            .join("; ") +
+          (skipped.length > 2 ? "…" : "")
+        : ""
+    }`;
+  } catch (error) {
+    $("seasonImportStatus").textContent = error.message;
+  } finally {
+    seasonLoading = false;
+    $("seasonImportAll").disabled = false;
+    updateSeasonImportBar();
+  }
+}
+
 function edit(item, prefill = null, force = false) {
   if (!ready || busy || (!force && !allowLeave())) return;
-
   // Ao abrir uma matéria existente (ou uma matéria nova manual), o vínculo
   // pendente com o radar RSS deixa de valer.
   if (item || !prefill) pendingRss = null;
@@ -325,6 +612,8 @@ function importRssItem(item, feed) {
   document.querySelector(".adminWorkspace").hidden = false;
   $("newArticle").hidden = false;
   $("editorEmpty").hidden = true;
+  $("recommendationSuggest").hidden = true;
+  $("scheduleSuggest").hidden = true;
   $("categoryFilter").hidden = false;
 
   document.querySelectorAll("[data-module]").forEach((button) => {
@@ -383,7 +672,10 @@ function switchModule(next) {
   }
 
   // Configura a área editorial selecionada
-  $('editorEmpty').hidden = false;
+  const suggestionModule = next === 'recommendations' || next === 'schedule';
+  $('editorEmpty').hidden = suggestionModule;
+  $('recommendationSuggest').hidden = next !== 'recommendations';
+  $('scheduleSuggest').hidden = next !== 'schedule';
   $('categoryFilter').hidden = next !== 'news';
   $('adminSearch').value = '';
   $('statusFilter').value = 'all';
@@ -395,6 +687,10 @@ function switchModule(next) {
     '＋ Novo conteúdo';
 
   renderList();
+
+  // As sugestões externas só são consultadas quando a aba é aberta.
+  if (next === 'recommendations' && !trendingItems.length) loadTrending();
+  if (next === 'schedule' && !seasonItems.length) loadSeasonImport();
 }
 
 function renderList() {
@@ -591,6 +887,35 @@ $("bulkAll").onchange = () => {
   renderList();
 };
 $("bulkPublish").onclick = publishSelectedDrafts;
+
+const seasonToday = todayInBrasilia().split("-").map(Number);
+$("seasonImportYear").value = seasonToday[0];
+$("seasonImportQuarter").value = String(
+  Math.min(4, Math.max(1, Math.ceil(seasonToday[1] / 3))),
+);
+$("trendingRefresh").onclick = () => loadTrending(true);
+$("trendingList").onclick = (event) => {
+  const button = event.target.closest("[data-trending]");
+  if (button) applyTrending(button.dataset.trending);
+};
+$("seasonImportFetch").onclick = loadSeasonImport;
+$("seasonImportSubmit").onclick = importSeason;
+$("seasonImportAll").onchange = () => {
+  for (const item of seasonItems)
+    if (!item.imported) {
+      if ($("seasonImportAll").checked) seasonSelected.add(item.anime_id);
+      else seasonSelected.delete(item.anime_id);
+    }
+  renderSeasonImport();
+};
+$("seasonImportQuarter").onchange = () => {
+  seasonItems = [];
+  seasonSelected.clear();
+  renderSeasonImport();
+  $("seasonImportStatus").textContent =
+    "Clique em “Buscar temporada” para consultar o novo período.";
+};
+
 $("status").onchange = buttonLabel;
 $("category").onchange = reviewVisibility;
 $("cover").addEventListener("input", coverPreview);

@@ -1,9 +1,15 @@
 import { createHash } from "node:crypto";
 import { fetchAndParseFeed, validateFeedUrl } from "./rss.mjs";
+import {
+  animePlatforms,
+  fetchSeasonSchedule,
+  fetchTrendingAnime,
+  seasonFromQuarter,
+} from "./anime.mjs";
 
 const categories = ["Notícias", "Reviews", "Guias", "Cultura"];
 const statuses = ["draft", "published", "archived"];
-const platforms = ["Crunchyroll", "Disney+", "Netflix", "HBO Max", "TV aberta"];
+const platforms = animePlatforms;
 const newsColumns = [
   "title",
   "summary",
@@ -883,6 +889,221 @@ export async function handle(request, env) {
           request.headers.get("Sec-Fetch-Site") === "cross-site")
       )
         return json({ error: "Origem da solicitação não permitida." }, 403);
+
+      // ========================================
+      // ANILIST / ANICHART - SUGESTÕES E TEMPORADA
+      // ========================================
+
+      if (path === "/api/editor/anime/trending" && request.method === "GET") {
+        const limit = Number(url.searchParams.get("limit") || 12);
+
+        if (!Number.isInteger(limit) || limit < 1 || limit > 25)
+          return json({ error: "Informe um limite entre 1 e 25." }, 422);
+
+        try {
+          return json({ items: await fetchTrendingAnime(limit) });
+        } catch (error) {
+          return json(
+            {
+              error: `Não foi possível consultar o AniList agora. ${
+                error?.message || "Tente novamente."
+              }`,
+            },
+            502,
+          );
+        }
+      }
+
+      if (path === "/api/editor/anime/season" && request.method === "GET") {
+        const year = Number(url.searchParams.get("year"));
+        const quarter = Number(url.searchParams.get("quarter"));
+
+        if (!Number.isInteger(year) || year < 2020 || year > 2100)
+          return json({ error: "Informe um ano válido." }, 422);
+        if (!Number.isInteger(quarter) || quarter < 1 || quarter > 4)
+          return json({ error: "Informe uma temporada válida." }, 422);
+
+        try {
+          const items = await fetchSeasonSchedule({
+            year,
+            quarter,
+            maxPages: 3,
+          });
+          const { results } = await env.DB.prepare(
+            `SELECT title, official_url
+             FROM schedule
+             WHERE season_year=? AND season_quarter=?`,
+          )
+            .bind(year, quarter)
+            .all();
+          const existingTitles = new Set(
+            results.map((item) => String(item.title || "").trim().toLowerCase()),
+          );
+          const existingUrls = new Set(
+            results
+              .map((item) => String(item.official_url || "").trim())
+              .filter(Boolean),
+          );
+
+          return json({
+            year,
+            quarter,
+            season: seasonFromQuarter(quarter),
+            items: items.map((item) => ({
+              ...item,
+              imported:
+                existingTitles.has(item.title.toLowerCase()) ||
+                Boolean(item.official_url && existingUrls.has(item.official_url)),
+            })),
+          });
+        } catch (error) {
+          return json(
+            {
+              error: `Não foi possível carregar a temporada no AniList. ${
+                error?.message || "Tente novamente."
+              }`,
+            },
+            502,
+          );
+        }
+      }
+
+      if (
+        path === "/api/editor/anime/season/import" &&
+        request.method === "POST"
+      ) {
+        let input;
+        try {
+          input = await bodyJson(request);
+        } catch {
+          return json({ error: "Conteúdo inválido ou grande demais." }, 400);
+        }
+
+        const year = Number(input.year);
+        const quarter = Number(input.quarter);
+        const ids = [
+          ...new Set(
+            (Array.isArray(input.ids) ? input.ids : [])
+              .map((value) => String(value))
+              .filter(Boolean),
+          ),
+        ].slice(0, 200);
+
+        if (!Number.isInteger(year) || year < 2020 || year > 2100)
+          return json({ error: "Informe um ano válido." }, 422);
+        if (!Number.isInteger(quarter) || quarter < 1 || quarter > 4)
+          return json({ error: "Informe uma temporada válida." }, 422);
+        if (!ids.length)
+          return json(
+            { error: "Selecione ao menos um anime para importar." },
+            422,
+          );
+
+        try {
+          const candidates = await fetchSeasonSchedule({
+            year,
+            quarter,
+            maxPages: 3,
+          });
+          const selected = candidates.filter((item) =>
+            ids.includes(item.anime_id),
+          );
+
+          const { results } = await env.DB.prepare(
+            `SELECT title, official_url
+             FROM schedule
+             WHERE season_year=? AND season_quarter=?`,
+          )
+            .bind(year, quarter)
+            .all();
+          const existingTitles = new Set(
+            results.map((item) => String(item.title || "").trim().toLowerCase()),
+          );
+          const existingUrls = new Set(
+            results
+              .map((item) => String(item.official_url || "").trim())
+              .filter(Boolean),
+          );
+
+          const now = new Date().toISOString();
+          const created = [];
+          const skipped = [];
+          const seen = new Set(selected.map((item) => item.anime_id));
+
+          for (const id of ids)
+            if (!seen.has(id))
+              skipped.push({
+                id,
+                title: "",
+                reason:
+                  "Título sem exibição semanal confirmada no AniList ou fora das páginas consultadas.",
+              });
+
+          for (const candidate of selected) {
+            const titleKey = candidate.title.trim().toLowerCase();
+
+            if (
+              existingTitles.has(titleKey) ||
+              (candidate.official_url &&
+                existingUrls.has(candidate.official_url))
+            ) {
+              skipped.push({
+                id: candidate.anime_id,
+                title: candidate.title,
+                reason: "Já está no calendário desta temporada.",
+              });
+              continue;
+            }
+
+            const { errors, value } = validateSchedule({
+              ...candidate,
+              status: "draft",
+            });
+
+            if (errors.length) {
+              skipped.push({
+                id: candidate.anime_id,
+                title: candidate.title,
+                reason: errors.join(" "),
+              });
+              continue;
+            }
+
+            const result = await env.DB.prepare(
+              `INSERT INTO schedule (${scheduleColumns.join(
+                ",",
+              )},created_at,updated_at) VALUES (${scheduleColumns
+                .map(() => "?")
+                .join(",")},?,?)`,
+            )
+              .bind(
+                ...scheduleColumns.map((column) => value[column]),
+                now,
+                now,
+              )
+              .run();
+
+            existingTitles.add(titleKey);
+            if (value.official_url) existingUrls.add(value.official_url);
+            created.push({
+              id: Number(result?.meta?.last_row_id) || null,
+              title: value.title,
+            });
+          }
+
+          return json({ ok: true, created, skipped });
+        } catch (error) {
+          return json(
+            {
+              error: `Não foi possível importar a temporada. ${
+                error?.message || "Tente novamente."
+              }`,
+            },
+            502,
+          );
+        }
+      }
+
       if (path === "/api/admin/overview" && request.method === "GET") {
         const counts = await Promise.all(
           Object.keys(editorialTables).map(async (table) => {

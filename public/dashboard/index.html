@@ -94,6 +94,94 @@
                   Este painel gerencia as novas matérias da redação.</small
                 >
               </div>
+              <section id="recommendationSuggest" class="animeSuggest" hidden>
+                <div class="animeSuggestHead">
+                  <div>
+                    <span class="tag">ANILIST / EM ALTA</span>
+                    <h2>Sugestões para a recomendação</h2>
+                    <p>
+                      Animes em alta agora no AniList. Escolha um para
+                      preencher o formulário como rascunho e revise os links
+                      antes de publicar.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    id="trendingRefresh"
+                    class="outlineButton"
+                  >
+                    Atualizar sugestões
+                  </button>
+                </div>
+                <div
+                  id="trendingList"
+                  class="animeSuggestGrid"
+                  aria-live="polite"
+                ></div>
+                <span
+                  id="trendingStatus"
+                  class="animeSuggestStatus"
+                  role="status"
+                ></span>
+              </section>
+              <section id="scheduleSuggest" class="animeSuggest" hidden>
+                <div class="animeSuggestHead">
+                  <div>
+                    <span class="tag">ANICHART / ANILIST</span>
+                    <h2>Importar temporada para o calendário</h2>
+                    <p>
+                      Usa a mesma fonte de dados do AniChart. Títulos com
+                      exibição semanal entram como rascunhos, com dia, horário
+                      de Brasília, capa e plataforma quando disponíveis.
+                    </p>
+                  </div>
+                </div>
+                <div class="animeImportControls">
+                  <label
+                    >Ano<input
+                      id="seasonImportYear"
+                      type="number"
+                      min="2020"
+                      max="2100" /></label
+                  ><label
+                    >Temporada<select id="seasonImportQuarter">
+                      <option value="1">Janeiro — Março</option>
+                      <option value="2">Abril — Junho</option>
+                      <option value="3">Julho — Setembro</option>
+                      <option value="4">Outubro — Dezembro</option>
+                    </select></label
+                  ><button
+                    type="button"
+                    id="seasonImportFetch"
+                    class="outlineButton"
+                  >
+                    Buscar temporada
+                  </button>
+                </div>
+                <div
+                  id="seasonImportList"
+                  class="animeSuggestGrid"
+                  aria-live="polite"
+                ></div>
+                <div id="seasonImportActions" class="animeImportActions" hidden>
+                  <label class="bulkSelectAll"
+                    ><input type="checkbox" id="seasonImportAll" /> Selecionar
+                    todos</label
+                  ><button
+                    type="button"
+                    id="seasonImportSubmit"
+                    class="primary"
+                    disabled
+                  >
+                    Importar selecionados
+                  </button>
+                </div>
+                <span
+                  id="seasonImportStatus"
+                  class="animeSuggestStatus"
+                  role="status"
+                ></span>
+              </section>
               <form id="editorForm" hidden>
                 <div class="editorHead">
                   <span id="editorMode" class="tag">NOVA MATÉRIA</span
@@ -402,7 +490,10 @@
                       <option>Disney+</option>
                       <option>Netflix</option>
                       <option>HBO Max</option>
+                      <option>Prime Video</option>
+                      <option>HIDIVE</option>
                       <option>TV aberta</option>
+                      <option>Outros</option>
                     </select></label
                   ><label
                     >Idioma ou formato<select id="schedule_language">

@@ -181,6 +181,7 @@
         if (item.body_format === 'rich-v1' && window.VisionContent) {
           try {
             const doc = window.VisionContent.validate(JSON.parse(item.body));
+            window.VisionContent.ensureFonts(doc);
             richHtml = '<div class="formattedContent">' + window.VisionContent.render(doc) + '</div>';
             plainBody = window.VisionContent.plain(doc);
           } catch {

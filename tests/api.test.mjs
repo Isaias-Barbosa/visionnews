@@ -5,6 +5,7 @@ db.exec(readFileSync('drizzle/0001_editor_reviews_schedule.sql','utf8').replace(
 db.exec(readFileSync('drizzle/0002_editorial_dashboard.sql','utf8'));
 db.exec(readFileSync('drizzle/0003_news_feature.sql','utf8'));
 db.exec(readFileSync('drizzle/0004_rss.sql','utf8'));
+db.exec(readFileSync('drizzle/0006_rss_style.sql','utf8'));
 const env={
  ADMIN_EMAIL:'editor@example.com',
  DB:{prepare(sql){
@@ -319,4 +320,85 @@ test('admin users page and users api list users and protect routes', async () =>
 
   const newsPlural = await worker.fetch(new Request('https://vision.test/noticias'), env);
   assert.equal(newsPlural.status, 200);
+});
+
+test('font catalog proxy serves the git-sourced catalog with at least 500 families', async () => {
+  const originalFetch = globalThis.fetch;
+  const items = Array.from({ length: 600 }, (_, index) => ({
+    family: `Font ${index + 1}`,
+    category: 'sans-serif',
+    variants: ['400', '700'],
+    subsets: ['latin'],
+  }));
+
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /^https:\/\//);
+    return new Response(JSON.stringify({ items }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(request('/api/fonts/catalog'), env);
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.count, 600);
+    assert.equal(data.items.length, 600);
+    assert([
+      'https://fonts.grida.co/webfonts.json',
+      'https://raw.githubusercontent.com/gridaco/fonts/master/webfonts.json',
+    ].includes(data.source));
+    assert.equal(data.items[0].family, 'Font 1');
+    assert.deepEqual(data.items[0].variants, ['400', '700']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('RSS style hints persist in style_json and import as a rich draft', async () => {
+  const now = new Date().toISOString();
+  const feedUrl = 'https://feeds.example.com/style.xml';
+  const feedId = Number(db.prepare(
+    'INSERT INTO rss_feeds (name,feed_url,site_url,is_active,auto_import,created_at,updated_at) VALUES (?,?,?,?,?,?,?)'
+  ).run('Feed Estilizado', feedUrl, 'https://styled.example.com/', 1, 0, now, now).lastInsertRowid);
+
+  const style = {
+    fonts: ['Zen Maru Gothic'],
+    colors: ['#123456'],
+    backgrounds: ['#fff0dd'],
+  };
+  const content = 'Conteúdo completo da notícia com tipografia detectada no feed para gerar o rascunho.';
+  const itemId = Number(db.prepare(
+    'INSERT INTO rss_items (feed_id,item_key,guid,link,title,summary,content,image_url,author,published_at,style_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(
+    feedId, 'style-key', 'style-guid', 'https://styled.example.com/noticia',
+    'Notícia com estilo do feed', 'Resumo da notícia com estilo do feed.', content,
+    '', 'Redação', now, JSON.stringify(style), now,
+  ).lastInsertRowid);
+
+  const detail = await (await worker.fetch(request('/api/editor/rss-items/' + itemId), env)).json();
+  assert.deepEqual(detail.item.style, style);
+  assert(!('style_json' in detail.item));
+
+  const imported = await worker.fetch(request('/api/editor/rss-items/' + itemId + '/import', 'POST'), env);
+  assert.equal(imported.status, 201);
+  const { item } = await imported.json();
+  assert.equal(item.body_format, 'rich-v1');
+
+  const doc = JSON.parse(item.body);
+  assert.equal(doc.blocks[0].children[0].font, 'Zen Maru Gothic');
+  assert.equal(doc.blocks[0].children[0].color, '#123456');
+  assert.equal(doc.blocks[0].children[0].bg, '#fff0dd');
+
+  const html = globalThis.VisionContent.render(doc);
+  assert(html.includes('font-family:&quot;Zen Maru Gothic&quot;'));
+  assert(html.includes('background-color:#fff0dd'));
+
+  const stored = db.prepare('SELECT style_json FROM rss_items WHERE id=?').get(itemId);
+  assert.deepEqual(JSON.parse(stored.style_json), style);
+
+  db.exec('DELETE FROM rss_items');
+  db.exec('DELETE FROM rss_feeds');
+  db.exec('DELETE FROM news');
 });

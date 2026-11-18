@@ -159,6 +159,43 @@ test('DOCTYPE and ENTITY declarations are refused before parsing', () => {
   );
 });
 
+const styledRss = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Feed com tipografia</title>
+    <link>https://styled.example.com/</link>
+    <description>Notícias com estilo próprio</description>
+    <item>
+      <title>Notícia com fonte e cor do feed</title>
+      <link>https://styled.example.com/noticia</link>
+      <description><![CDATA[<p>Resumo com estilo.</p>]]></description>
+      <content:encoded><![CDATA[
+        <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;700&family=Noto+Sans+JP&display=swap" rel="stylesheet">
+        <style>.lead { font-family: 'M PLUS Rounded 1c', sans-serif; color: #123456; background-color: rgba(255,240,221,.8); }</style>
+        <p><font face="Roboto Slab" color="rgb(12,34,56)">Texto destacado</font></p>
+        <script>alert(1)</script>
+      ]]></content:encoded>
+      <guid>https://styled.example.com/noticia</guid>
+      <pubDate>Mon, 16 Nov 2026 12:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>`;
+
+test('RSS parser extracts only safe typography hints from styled HTML', () => {
+  const feed = parseFeed(styledRss, 'https://feeds.example.com/styled.xml');
+  const [item] = feed.items;
+
+  assert.deepEqual(item.style, {
+    fonts: ['Zen Maru Gothic', 'Noto Sans JP', 'M PLUS Rounded 1c', 'Roboto Slab'],
+    colors: ['#123456', '#0c2238'],
+    backgrounds: ['#fff0dd'],
+  });
+  assert(!item.content.includes('<script'));
+  assert(!item.content.includes('font-family'));
+  assert(!item.content.includes('javascript'));
+  assert.equal(item.title, 'Notícia com fonte e cor do feed');
+});
+
 test('validateFeedUrl refuses unsafe destinations without DNS lookups', async () => {
   const cases = [
     ['not-a-url', /URL válida/],

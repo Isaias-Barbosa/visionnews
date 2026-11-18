@@ -311,6 +311,95 @@
                       aria-label="Tachado"
                     >
                       <s>S</s></button
+                    ><button
+                      type="button"
+                      id="fontPickerToggle"
+                      class="toolFont"
+                      aria-expanded="false"
+                      aria-controls="fontPicker"
+                      title="Escolher fonte (1.900+ fontes do Google Fonts)"
+                    >
+                      Fonte: <span id="currentFont">Padrão</span> ▾
+                    </button>
+                    <div id="fontPicker" class="fontPicker" hidden>
+                      <label for="fontSearch">Buscar fonte</label>
+                      <input
+                        id="fontSearch"
+                        type="search"
+                        placeholder="Ex.: Inter, Roboto Slab, serif…"
+                        autocomplete="off"
+                      />
+                      <div id="fontCategories" class="fontCategories"></div>
+                      <p id="fontCatalogStatus" class="fontCatalogStatus">
+                        Carregando catálogo…
+                      </p>
+                      <div
+                        id="fontOptions"
+                        class="fontOptions"
+                        role="listbox"
+                        aria-label="Fontes disponíveis"
+                      ></div>
+                    </div>
+                    <button
+                      type="button"
+                      id="fontSizeDown"
+                      class="toolCompact"
+                      aria-label="Diminuir tamanho do texto"
+                      title="Diminuir tamanho"
+                    >
+                      A−
+                    </button>
+                    <button
+                      type="button"
+                      id="fontSizeUp"
+                      class="toolCompact"
+                      aria-label="Aumentar tamanho do texto"
+                      title="Aumentar tamanho"
+                    >
+                      A+
+                    </button>
+                    <label
+                      class="toolColor"
+                      title="Cor do texto"
+                    >
+                      <span aria-hidden="true">A</span>
+                      <input
+                        id="textColor"
+                        type="color"
+                        value="#111318"
+                        aria-label="Cor do texto"
+                      />
+                    </label>
+                    <label
+                      class="toolColor toolHighlight"
+                      title="Cor de realce"
+                    >
+                      <span aria-hidden="true">▨</span>
+                      <input
+                        id="highlightColor"
+                        type="color"
+                        value="#d9ff60"
+                        aria-label="Cor de realce"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      data-command="justifyLeft"
+                      aria-label="Alinhar à esquerda"
+                    >
+                      ⬅</button
+                    ><button
+                      type="button"
+                      data-command="justifyCenter"
+                      aria-label="Centralizar"
+                    >
+                      ↔</button
+                    ><button
+                      type="button"
+                      data-command="justifyRight"
+                      aria-label="Alinhar à direita"
+                    >
+                      ➡</button
                     ><button type="button" data-block="p">Texto</button
                     ><button type="button" data-block="h2">Título</button
                     ><button type="button" data-block="h3">Subtítulo</button
@@ -347,6 +436,7 @@
                       ↷
                     </button>
                   </div>
+                  <span id="styleStatus" class="styleStatus" role="status"></span>
                   <div id="linkFields" class="linkFields" hidden>
                     <label for="editorLink">Endereço HTTPS</label
                     ><input
@@ -381,6 +471,56 @@
                     aria-labelledby="contentLabel"
                     spellcheck="true"
                   ></div>
+                  <div id="importedStyle" class="importedStyle" hidden>
+                    <div class="importedStyleHead">
+                      <strong>Estilo importado da fonte</strong>
+                      <span id="importedStyleOrigin"></span>
+                      <button
+                        type="button"
+                        id="closeImportedStyle"
+                        aria-label="Fechar estilos importados"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div class="importedStyleGroups">
+                      <div>
+                        <small>Fontes detectadas</small>
+                        <div id="importedFonts" class="styleChips"></div>
+                      </div>
+                      <div>
+                        <small>Cores detectadas</small>
+                        <div id="importedColors" class="styleChips"></div>
+                      </div>
+                    </div>
+                    <div class="importedStyleActions">
+                      <button
+                        type="button"
+                        id="applyImportedSelection"
+                        class="outlineButton"
+                      >
+                        Aplicar à seleção
+                      </button>
+                      <button
+                        type="button"
+                        id="applyImportedAll"
+                        class="outlineButton"
+                      >
+                        Aplicar a toda a matéria
+                      </button>
+                      <details class="importHtmlStyle">
+                        <summary>Detectar estilo de HTML colado</summary>
+                        <textarea
+                          id="importStyleHtml"
+                          rows="3"
+                          placeholder="Cole aqui o HTML da notícia de origem…"
+                        ></textarea>
+                        <button type="button" id="detectHtmlStyle">
+                          Detectar fontes e cores
+                        </button>
+                      </details>
+                    </div>
+                  </div>
                   <p class="fieldHint">
                     Cole uma imagem diretamente no texto com Ctrl+V ou Cmd+V.
                   </p>
@@ -661,6 +801,7 @@
       <div id="previewContent"></div>
     </dialog>
     <script src="/content.js"></script>
+    <script src="/font-catalog.js"></script>
     <script src="/admin/editor.js"></script>
     <script src="/rss-sources.js"></script>
     <script src="/rss.js"></script>

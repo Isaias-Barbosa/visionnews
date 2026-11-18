@@ -98,6 +98,83 @@ function cleanText(value, maxLength = 100000) {
     .slice(0, maxLength);
 }
 
+const genericFonts = new Set(['sans-serif', 'serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'inherit', 'initial', 'unset']);
+
+function normalizeFont(value) {
+  const family = String(value || '')
+    .split(',')[0]
+    .replace(/^["']|["']$/g, '')
+    .trim()
+    .slice(0, 80);
+
+  return family && !genericFonts.has(family.toLowerCase()) && /^[\p{L}\p{N} ._'&-]+$/u.test(family)
+    ? family
+    : '';
+}
+
+function normalizeColor(value) {
+  const input = String(value || '').trim();
+  if (/^#[\da-f]{6}$/i.test(input)) return input.toLowerCase();
+  if (/^#[\da-f]{3}$/i.test(input)) {
+    return '#' + [...input.slice(1)].map(char => char + char).join('').toLowerCase();
+  }
+  const rgb = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i.exec(input);
+  if (rgb) {
+    const parts = rgb.slice(1, 4).map(Number);
+    return parts.every(n => n <= 255)
+      ? '#' + parts.map(n => n.toString(16).padStart(2, '0')).join('')
+      : '';
+  }
+  return '';
+}
+
+/** Extrai apenas dicas de estilo do HTML do feed; o HTML em si é descartado. */
+function extractStyleHints(values) {
+  const html = decodeEntities(values.map(getValue).join(' '))
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .slice(0, 200000);
+  if (!html.trim()) return null;
+
+  const fonts = [];
+  const colors = [];
+  const backgrounds = [];
+  const push = (list, value, limit) => {
+    if (value && !list.includes(value) && list.length < limit) list.push(value);
+  };
+
+  let match;
+  const familyPattern = /family=([^&"'\s]+)/gi;
+  while ((match = familyPattern.exec(html))) {
+    decodeURIComponent(match[1])
+      .split('|')
+      .forEach(part => push(fonts, normalizeFont(part.split(':')[0].replace(/\+/g, ' ')), 12));
+  }
+
+  // O nome da família pode vir entre aspas, como em CSS publicado por editores.
+  const fontFamilyPattern = /font-family\s*:\s*(?:"([^"]+)"|'([^']+)'|([^;}]+))/gi;
+  while ((match = fontFamilyPattern.exec(html))) {
+    push(fonts, normalizeFont(match[1] || match[2] || match[3]), 12);
+  }
+
+  const facePattern = /\bface\s*=\s*["']([^"']+)["']/gi;
+  while ((match = facePattern.exec(html))) push(fonts, normalizeFont(match[1]), 12);
+
+  const colorPattern = /(?:^|[;"'\s])color\s*:\s*([^;"'}]+)/gi;
+  while ((match = colorPattern.exec(html))) push(colors, normalizeColor(match[1]), 16);
+
+  const backgroundPattern = /background(?:-color)?\s*:\s*([^;"'}]+)/gi;
+  while ((match = backgroundPattern.exec(html))) {
+    push(backgrounds, normalizeColor(match[1]), 12);
+  }
+
+  const fontColorPattern = /\bcolor\s*=\s*["']([^"']+)["']/gi;
+  while ((match = fontColorPattern.exec(html))) push(colors, normalizeColor(match[1]), 16);
+
+  return fonts.length || colors.length || backgrounds.length
+    ? { fonts, colors, backgrounds }
+    : null;
+}
+
 function extractImage(value, baseUrl = '') {
   const html = getValue(value);
 
@@ -428,6 +505,7 @@ function normalizeItem(item, baseUrl, atom = false) {
     title,
     summary: cleanText(summarySource, 5000),
     content: cleanText(contentSource, 100000),
+    style: extractStyleHints([contentSource, summarySource]),
     link,
     image: getImage(item, baseUrl),
     author,

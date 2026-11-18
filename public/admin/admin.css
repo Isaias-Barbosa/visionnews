@@ -547,3 +547,168 @@
   min-height: 75vh;
   max-height: none;
 }
+
+/* ---------------------------------------------------------------------------
+   Tipografia e cores no editor
+   --------------------------------------------------------------------------- */
+.richField { position: relative; }
+.richToolbar { position: relative; z-index: 3; }
+.richToolbar .toolFont { min-width: 150px; color: var(--lime); }
+.richToolbar .toolCompact { padding: 7px 9px; font-weight: 700; }
+.richToolbar .toolColor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #394152;
+  border-radius: 3px;
+  background: #111620;
+  padding: 3px 7px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.richToolbar .toolColor input[type="color"] {
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.richToolbar .toolHighlight span { color: #d9ff60; }
+.styleStatus { display: block; min-height: 14px; padding: 4px 2px; font-size: 10px; color: var(--lime); }
+
+.fontPicker {
+  position: absolute;
+  z-index: 12;
+  top: 100%;
+  left: 8px;
+  width: min(430px, calc(100vw - 80px));
+  max-height: 430px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid #4b566b;
+  border-radius: 5px;
+  background: #171c27;
+  box-shadow: 0 18px 50px #0009;
+}
+.fontPicker[hidden] { display: none !important; }
+.fontPicker > label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.fontPicker input[type="search"] {
+  margin-bottom: 10px;
+  padding: 10px;
+  font-size: 12px;
+}
+.fontCategories { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.fontCategories button {
+  border: 1px solid #394152;
+  border-radius: 20px;
+  padding: 5px 9px;
+  background: #0d1017;
+  color: var(--muted);
+  font-size: 9px;
+  cursor: pointer;
+}
+.fontCategories button.selected,
+.fontCategories button:hover { border-color: var(--lime); color: var(--lime); }
+.fontCatalogStatus { margin: 0 0 8px; font-size: 9px; color: var(--muted); }
+.fontOptions { display: grid; gap: 4px; max-height: 250px; overflow: auto; }
+.fontOption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: #0f131c;
+  color: #e7ecf5;
+  text-align: left;
+  cursor: pointer;
+}
+.fontOption:hover { border-color: var(--lime); background: #d9ff600a; }
+.fontOptionPreview { font-size: 17px; line-height: 1.3; }
+.fontOption small { color: var(--muted); font-size: 8px; white-space: nowrap; }
+.fontEmpty { margin: 0; padding: 14px; color: var(--muted); font-size: 11px; }
+
+/* Estilo importado de RSS/HTML */
+.importedStyle {
+  margin: 10px 0;
+  padding: 14px;
+  border: 1px solid #4b566b;
+  border-radius: 4px;
+  background: #171c27;
+}
+.importedStyle[hidden] { display: none !important; }
+.importedStyleHead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.importedStyleHead strong { font-size: 11px; color: var(--lime); }
+.importedStyleHead span { flex: 1; font-size: 9px; color: var(--muted); }
+.importedStyleHead button {
+  border: 0; background: none; color: var(--muted); font-size: 18px; cursor: pointer;
+}
+.importedStyleGroups { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.importedStyleGroups small {
+  display: block; margin-bottom: 7px; font-size: 9px; color: var(--muted);
+  letter-spacing: 1px; text-transform: uppercase;
+}
+.styleChips { display: flex; flex-wrap: wrap; gap: 6px; }
+.styleChip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid #394152; border-radius: 20px; padding: 6px 9px;
+  background: #0d1017; color: #e7ecf5; font-size: 10px; cursor: pointer;
+}
+.styleChip:hover { border-color: var(--lime); }
+.styleChip i { width: 11px; height: 11px; border-radius: 50%; border: 1px solid #ffffff44; }
+.fontChip { font-size: 13px; }
+.styleEmpty { font-size: 10px; color: var(--muted); }
+.importedStyleActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+.importedStyleActions .outlineButton { width: auto; margin: 0; padding: 8px 12px; font-size: 10px; }
+.importHtmlStyle { flex-basis: 100%; }
+.importHtmlStyle summary { font-size: 10px; color: var(--muted); cursor: pointer; }
+.importHtmlStyle textarea { margin-top: 8px; font-size: 11px; }
+.importHtmlStyle button { margin-top: 6px; padding: 7px 10px; font-size: 10px; }
+
+/* ---------------------------------------------------------------------------
+   Dashboard — área de notícias
+   --------------------------------------------------------------------------- */
+.adminList .newsItem { position: relative; padding: 17px 18px 17px 20px; }
+.adminList .newsItem h3 {
+  font-size: 18px;
+  line-height: 1.25;
+  margin: 9px 0 6px;
+  color: #f2f5fa;
+  transition: color .15s ease;
+}
+.adminList .newsItem:hover h3 { color: var(--lime); }
+.adminList .newsItem small { line-height: 1.6; font-size: 9px; }
+.newsItemMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.newsItemSource {
+  border: 1px solid #4b566b;
+  border-radius: 3px;
+  padding: 4px 6px;
+  color: #aeb6c7;
+  font-size: 8px;
+  letter-spacing: .5px;
+}
+.newsItemDate { color: var(--muted); font-size: 8px; }
+.newsStyleDots { display: inline-flex; gap: 3px; vertical-align: middle; margin-left: 6px; }
+.newsStyleDots i {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  border: 1px solid #ffffff44;
+}
+.adminList .newsItem.current { background: #d9ff600d; }
+.adminList .emptyList { padding: 26px 20px; }
+.listFilters { position: sticky; top: 0; z-index: 2; background: #131721; }
+
+@media (max-width: 700px) {
+  .importedStyleGroups { grid-template-columns: 1fr; }
+  .fontPicker { left: 0; width: calc(100vw - 40px); }
+}

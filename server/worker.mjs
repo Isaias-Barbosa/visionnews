@@ -63,6 +63,90 @@ const todayInBrasilia = () =>
     new Date(),
   );
 
+// Catálogo tipográfico mantido no GitHub a partir do Google Fonts. A resposta
+// é cacheada no Worker para não depender de rede a cada abertura do editor.
+const FONT_CATALOG_SOURCES = [
+  "https://fonts.grida.co/webfonts.json",
+  "https://raw.githubusercontent.com/gridaco/fonts/master/webfonts.json",
+];
+const FONT_CATALOG_TTL = 6 * 60 * 60 * 1000;
+let fontCatalogCache = null;
+
+async function fontCatalogData() {
+  if (fontCatalogCache && fontCatalogCache.expires > Date.now()) {
+    return fontCatalogCache.data;
+  }
+
+  let lastError = null;
+
+  for (const source of FONT_CATALOG_SOURCES) {
+    try {
+      const response = await fetch(source, {
+        signal: AbortSignal.timeout(12000),
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) throw Error("HTTP " + response.status);
+
+      const payload = await response.json();
+      const items = (Array.isArray(payload?.items) ? payload.items : [])
+        .map((item) => ({
+          family: String(item.family || "").trim().slice(0, 80),
+          category: String(item.category || "sans-serif").slice(0, 30),
+          variants: (Array.isArray(item.variants) ? item.variants : [])
+            .map(String)
+            .slice(0, 30),
+          subsets: (Array.isArray(item.subsets) ? item.subsets : [])
+            .map(String)
+            .slice(0, 30),
+        }))
+        .filter((item) => item.family)
+        .sort((a, b) => a.family.localeCompare(b.family, "pt-BR"));
+
+      // O catálogo completo tem mais de 1.900 famílias; nunca devolvemos uma
+      // lista parcial que não atenda ao mínimo de 500 fontes.
+      if (items.length < 500) throw Error("Catálogo incompleto.");
+
+      const data = { source, count: items.length, items };
+      fontCatalogCache = { data, expires: Date.now() + FONT_CATALOG_TTL };
+      return data;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (fontCatalogCache) return fontCatalogCache.data;
+  throw lastError || Error("Catálogo de fontes indisponível.");
+}
+
+function rssStyle(value) {
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return normalizeRssStyle(parsed);
+    } catch {
+      return null;
+    }
+  }
+
+  return normalizeRssStyle(value);
+}
+
+function normalizeRssStyle(value) {
+  if (!value || typeof value !== "object") return null;
+
+  const strings = (list, limit) =>
+    (Array.isArray(list) ? list : [])
+      .map((item) => String(item || "").trim().slice(0, 80))
+      .filter(Boolean)
+      .slice(0, limit);
+
+  return {
+    fonts: strings(value.fonts, 12),
+    colors: strings(value.colors, 16),
+    backgrounds: strings(value.backgrounds, 12),
+  };
+}
+
 async function canEdit(request, env) {
   if (canAdmin(request, env)) return true;
   const email = request.headers
@@ -112,14 +196,19 @@ function rssInputUrl(input) {
 }
 
 function rssItemResponse(item) {
+  const style = rssStyle(item.style_json ?? item.style);
+  const response = { ...item };
+  delete response.style_json;
+
   return {
-    ...item,
+    ...response,
     id: Number(item.id),
     feed_id: Number(item.feed_id),
     imported_news_id: item.imported_news_id
       ? Number(item.imported_news_id)
       : null,
     imported: Boolean(item.imported_at),
+    style: style || { fonts: [], colors: [], backgrounds: [] },
   };
 }
 
@@ -146,6 +235,7 @@ async function rssPersistItems(DB, feedId, result) {
     if (seen.has(itemKey)) continue;
     seen.add(itemKey);
 
+    const style = normalizeRssStyle(item.style);
     const values = [
       item.guid || null,
       item.link || null,
@@ -155,6 +245,7 @@ async function rssPersistItems(DB, feedId, result) {
       item.image || "",
       item.author || "",
       item.publishedAt,
+      style ? JSON.stringify(style) : null,
     ];
 
     const existing = await DB.prepare(
@@ -174,7 +265,8 @@ async function rssPersistItems(DB, feedId, result) {
             content=?,
             image_url=?,
             author=?,
-            published_at=?
+            published_at=?,
+            style_json=?
         WHERE id=?
       `,
       )
@@ -198,9 +290,10 @@ async function rssPersistItems(DB, feedId, result) {
         image_url,
         author,
         published_at,
+        style_json,
         created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (feed_id, item_key) DO NOTHING
       RETURNING id
     `,
@@ -251,6 +344,27 @@ export function rssDraftInput(item, feed) {
     body = `${body}\n\nNotícia recebida de ${feed.name}. Revise, complemente e confira a fonte antes de publicar.`.trim();
   }
 
+  // Quando a fonte traz tipografia própria, preservamos as dicas no documento
+  // rich para que o editor abra já com a fonte/cor detectadas.
+  const style = rssStyle(item.style_json ?? item.style);
+  const hasStyle = Boolean(
+    style && (style.fonts.length || style.colors.length || style.backgrounds.length),
+  );
+  let bodyFormat = "plain";
+
+  if (hasStyle) {
+    try {
+      body = JSON.stringify(
+        VisionContent.validate(VisionContent.fromPlainStyled(body, style)),
+      );
+      bodyFormat = "rich-v1";
+    } catch {
+      style.colors.length = 0;
+      style.backgrounds.length = 0;
+      style.fonts.length = 0;
+    }
+  }
+
   const author = (
     String(item.author || "").trim() ||
     String(feed.name || "").trim() ||
@@ -269,7 +383,7 @@ export function rssDraftInput(item, feed) {
     source_url: VisionContent.https(item.link) || "",
     source_label: String(feed.name || "Fonte RSS").slice(0, 120),
     status: "draft",
-    body_format: "plain",
+    body_format: bodyFormat,
     topic: "",
     tags: "",
     featured: false,
@@ -710,7 +824,7 @@ function securityHeaders(response) {
   response.headers.set("Referrer-Policy", "no-referrer");
   response.headers.set(
   "Content-Security-Policy",
-  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self'; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; base-uri 'self'; form-action 'self'; object-src 'none'",
+  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' https://fonts.grida.co https://raw.githubusercontent.com; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; base-uri 'self'; form-action 'self'; object-src 'none'",
 );
   return response;
 }
@@ -857,6 +971,17 @@ export async function handle(request, env) {
     routePath = mapRssAlias(path);
   try {
     if (path === "/api/health") return json({ ok: true });
+    if (path === "/api/fonts/catalog" && request.method === "GET") {
+      try {
+        const catalog = await fontCatalogData();
+        return json(catalog);
+      } catch (error) {
+        return json(
+          { error: "Catálogo de fontes indisponível.", detail: String(error?.message || "") },
+          503,
+        );
+      }
+    }
     const privatePage = path.match(
       /^\/(admin|dashboard)(?:\/index\.html|\/)?$/,
     )?.[1];

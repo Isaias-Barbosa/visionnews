@@ -189,11 +189,22 @@ function rssPrefill(item, feed) {
     body = `${body}\n\nNotícia recebida de ${feedName}. Revise, complemente e confira a fonte antes de publicar.`.trim();
   }
 
+  const style = item?.style || null;
+  const hasStyle = Boolean(
+    style &&
+      ((style.fonts || []).length ||
+        (style.colors || []).length ||
+        (style.backgrounds || []).length),
+  );
+
   return {
     title,
     summary,
-    body,
-    body_format: "plain",
+    style,
+    body: hasStyle
+      ? JSON.stringify(VisionContent.fromPlainStyled(body, style))
+      : body,
+    body_format: hasStyle ? "rich-v1" : "plain",
     category: "Notícias",
     author: "Redação VisionNews",
     cover: VisionContent.https(item?.image_url || item?.image) || "",
@@ -554,6 +565,15 @@ function edit(item, prefill = null, force = false) {
       (!source.featured_at || featuredDecision()?.id === source.id),
     );
     VisionEditor.set(source?.body || "", source?.body_format || "plain");
+
+    // Notícias vindas do radar podem trazer a tipografia da fonte original.
+    if (prefill?.style && !item) {
+      VisionEditor.importStyle(
+        prefill.style,
+        pendingRss ? "Radar RSS · " + pendingRss.feedName : "Fonte original",
+      );
+    }
+
     $("editorMode").textContent = item
       ? "EDITANDO / #" + item.id
       : prefill
@@ -693,6 +713,44 @@ function switchModule(next) {
   if (next === 'schedule' && !seasonItems.length) loadSeasonImport();
 }
 
+const styleHintCache = new Map();
+
+function newsStyleHints(item) {
+  const key = `${item.id}:${item.updated_at || ""}`;
+  if (styleHintCache.has(key)) return styleHintCache.get(key);
+
+  const result = { fonts: [], colors: [] };
+
+  if (item.body_format === "rich-v1" && typeof item.body === "string") {
+    try {
+      const doc = JSON.parse(item.body);
+      result.fonts = VisionContent.fontFamilies(doc).slice(0, 2);
+
+      const colors = new Set();
+      const matches = item.body.match(/"(?:color|bg)":"#[0-9a-f]{6}"/g) || [];
+      matches.forEach((entry) => {
+        const hex = entry.match(/#[0-9a-f]{6}/)?.[0];
+        if (hex) colors.add(hex);
+      });
+      result.colors = [...colors].slice(0, 3);
+    } catch {
+      // Conteúdo antigo inválido não deve quebrar a listagem.
+    }
+  }
+
+  if (styleHintCache.size > 500) styleHintCache.clear();
+  styleHintCache.set(key, result);
+  return result;
+}
+
+function newsDate(item) {
+  const value = item.published_at || item.updated_at || item.created_at;
+  const date = value ? new Date(value) : null;
+  return date && Number.isFinite(date.getTime())
+    ? date.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
+    : "";
+}
+
 function renderList() {
   const term = $("adminSearch").value.trim().toLowerCase(),
     status = $("statusFilter").value,
@@ -712,7 +770,30 @@ function renderList() {
   $("newsList").innerHTML = rows.length
     ? rows
         .map((a) => {
-          const card = `<button class="newsItem ${current?.id === a.id ? "current" : ""}" data-edit="${a.id}"><span class="statusPill ${a.status}">${names[a.status]}</span>${a.featured && a.status === "published" && featuredDecision()?.id === a.id ? ' <span class="statusPill published">★ Principal</span>' : ""}<h3>${esc(a.title)}</h3><small>${module === "schedule" ? esc(dayNames[a.weekday] + " · " + (a.time || "Horário a confirmar") + " · " + a.platform) : module === "recommendations" ? esc(a.feature_date.split("-").reverse().join("/")) : esc([a.category, a.topic, a.author].filter(Boolean).join(" · "))}</small></button>`;
+          const hints = selectable ? newsStyleHints(a) : null;
+          const date = newsDate(a);
+          const meta =
+            module === "schedule"
+              ? esc(dayNames[a.weekday] + " · " + (a.time || "Horário a confirmar") + " · " + a.platform)
+              : module === "recommendations"
+                ? esc(String(a.feature_date || "").split("-").reverse().join("/"))
+                : esc([a.category, a.topic, a.author].filter(Boolean).join(" · "));
+          const badges = [
+            `<span class="statusPill ${a.status}">${names[a.status]}</span>`,
+            a.featured && a.status === "published" && featuredDecision()?.id === a.id
+              ? '<span class="statusPill published">★ Principal</span>'
+              : "",
+            a.source_label && module === "news"
+              ? '<span class="newsItemSource">RSS</span>'
+              : "",
+            date && module !== "recommendations"
+              ? `<span class="newsItemDate">${esc(date)}</span>`
+              : "",
+          ].join("");
+          const dots = hints?.colors.length
+            ? `<span class="newsStyleDots" title="${esc(hints.fonts.join(", "))}">${hints.colors.map((hex) => `<i style="background:${esc(hex)}"></i>`).join("")}</span>`
+            : "";
+          const card = `<button class="newsItem ${current?.id === a.id ? "current" : ""}" data-edit="${a.id}"><span class="newsItemMeta">${badges}</span><h3>${esc(a.title)}</h3><small>${meta}${dots}</small></button>`;
           if (!selectable) return card;
           const check =
             a.status === "draft"
@@ -803,6 +884,7 @@ function renderTranslationBody(body, format) {
         typeof body === "string" ? JSON.parse(body) : body,
       );
 
+      VisionContent.ensureFonts(document);
       return VisionContent.render(document);
     } catch {
       return "<p>Não foi possível renderizar este conteúdo.</p>";

@@ -467,6 +467,33 @@
       }
     }
 
+    async function processBatches(maxCalls = 8) {
+      const totals = { claimed: 0, processed: 0, released: 0, recovered: 0 };
+
+      for (let call = 0; call < maxCalls; call++) {
+        const result = await api('/api/editor/pipeline/process', {
+          method: 'POST',
+          body: JSON.stringify({ limit: 3 }),
+        });
+
+        totals.claimed += Number(result.claimed || 0);
+        totals.processed += Number(result.processed || 0);
+        totals.released += Number(result.released || 0);
+        totals.recovered += Number(result.recovered || 0);
+
+        // Lote incompleto, sem pendências ou orçamento esgotado: parar aqui.
+        if (
+          Number(result.claimed || 0) < 3 ||
+          Number(result.released || 0) > 0 ||
+          Number(result.counts?.pending || 0) === 0
+        ) {
+          break;
+        }
+      }
+
+      return totals;
+    }
+
     async function runAction(name) {
       if (state.busy) return;
 
@@ -484,26 +511,19 @@
 
       try {
         if (name === 'process') {
-          const result = await api('/api/editor/pipeline/process', {
-            method: 'POST',
-            body: JSON.stringify({ limit: 5 }),
-          });
-          message = `Lote processado: ${Number(result.claimed || 0)} item(ns) reservado(s), ${Number(
-            result.processed || 0,
-          )} resultado(s). Nenhuma publicação automática.`;
+          const result = await processBatches(1);
+          message = `Lote processado: ${result.claimed} item(ns) reservado(s), ${result.processed} resultado(s)${
+            result.recovered ? `, ${result.recovered} preso(s) recuperado(s)` : ''
+          }. Nenhuma publicação automática.`;
         } else if (name === 'retry') {
           const retry = await api('/api/editor/pipeline/retry', {
             method: 'POST',
             body: JSON.stringify({ limit: 20 }),
           });
-          const retried = Number(retry.retried || 0);
-          const processed = await api('/api/editor/pipeline/process', {
-            method: 'POST',
-            body: JSON.stringify({ limit: 20 }),
-          });
-          message = `${retried} falha(s) reaberta(s); lote processado: ${Number(
-            processed.claimed || 0,
-          )} item(ns). Nenhuma publicação automática.`;
+          const totals = await processBatches(8);
+          message = `${Number(retry.retried || 0)} falha(s) reaberta(s); processados ${totals.processed} item(ns)${
+            totals.recovered ? `, ${totals.recovered} preso(s) recuperado(s)` : ''
+          }. Nenhuma publicação automática.`;
         } else {
           const result = await api('/api/editor/pipeline/enqueue', {
             method: 'POST',

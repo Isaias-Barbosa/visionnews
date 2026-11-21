@@ -1043,8 +1043,8 @@ export async function handle(request, env) {
       }
 
       const limit = Math.min(
-        20,
-        Math.max(1, Number(url.searchParams.get("limit")) || 5),
+        5,
+        Math.max(1, Number(url.searchParams.get("limit")) || 3),
       );
 
       return json(
@@ -2288,11 +2288,15 @@ if (
         }
 
         const limit = Math.min(
-          20,
-          Math.max(1, Number(input.limit) || 5),
+          5,
+          Math.max(1, Number(input.limit) || 3),
         );
+        const configuredMaxMs = Number(input.maxMs);
+        const maxMs = Number.isFinite(configuredMaxMs)
+          ? Math.min(25000, Math.max(0, configuredMaxMs))
+          : 20000;
 
-        return json(await processQueueItems(env.DB, env, { limit }));
+        return json(await processQueueItems(env.DB, env, { limit, maxMs }));
       }
 
       if (

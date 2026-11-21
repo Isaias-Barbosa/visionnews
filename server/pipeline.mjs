@@ -14,6 +14,8 @@ import {
   getRssItemForPipeline,
   insertSuggestion,
   registerDedup,
+  releaseQueueItems,
+  requeueStaleQueueItems,
   sourceHash,
   updateRssItemPipeline,
 } from "./queue.mjs";
@@ -441,10 +443,30 @@ export async function processQueueItems(DB, env = {}, options = {}) {
   }
 
   const deps = depsFor(options);
-  const claimed = await claimQueueItems(DB, { limit: options.limit || 5 });
+  // Lots pequenos e orçamento de tempo evitam 504 na Vercel: o que não couber
+  // volta para pending e é retomado na próxima chamada.
+  const limit = Math.min(5, Math.max(1, Number(options.limit) || 3));
+  const configuredMaxMs = Number(options.maxMs);
+  const maxMs = Number.isFinite(configuredMaxMs)
+    ? Math.min(25000, Math.max(0, configuredMaxMs))
+    : 20000;
+  const stale = options.skipStale
+    ? { released: 0 }
+    : await requeueStaleQueueItems(DB, {
+        olderThanMs: options.staleMs || 120000,
+      });
+  const claimed = await claimQueueItems(DB, { limit });
   const results = [];
+  const startedAt = Date.now();
+  let released = [];
 
-  for (const job of claimed) {
+  for (let index = 0; index < claimed.length; index++) {
+    if (Date.now() - startedAt >= maxMs) {
+      released = claimed.slice(index);
+      break;
+    }
+
+    const job = claimed[index];
     try {
       if (job.source_type !== "rss") {
         await finishQueueItem(DB, job.id, {
@@ -463,9 +485,13 @@ export async function processQueueItems(DB, env = {}, options = {}) {
     }
   }
 
+  if (released.length) await releaseQueueItems(DB, released);
+
   return {
     claimed: claimed.length,
     processed: results.length,
+    released: released.length,
+    recovered: stale.released,
     results,
     counts: await countQueueByStatus(DB),
   };

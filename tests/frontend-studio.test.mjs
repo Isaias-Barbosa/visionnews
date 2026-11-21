@@ -43,7 +43,9 @@ test('studio frontend reads the pipeline and never publishes automatically', () 
   assert.match(studio, /não gerou sugestão/);
   assert.match(studio, /data-studio-action="retry"/);
   assert.match(studio, /Reprocessar falhas/);
-  assert.match(studio, /limit: 20/);
+  assert.match(studio, /function processBatches/);
+  assert.match(studio, /body: JSON\.stringify\(\{ limit: 3 \}\)/);
+  assert.match(studio, /counts\?\.pending/);
 });
 
 test('dashboard integrates studio without changing editorial publication', () => {

@@ -852,6 +852,33 @@ test("pipeline routes expose queue and suggestions without publishing", async ()
   assert.equal(feedId > 0, true);
 });
 
+test("pipeline process route bounds the batch to avoid gateway timeouts", async () => {
+  const db = testDb();
+  const env = testEnv(db);
+  await enqueueQueueItems(
+    env.DB,
+    Array.from({ length: 6 }, (_, index) => ({
+      sourceType: "rss",
+      itemKey: `timeout-${index}`,
+      payload: { rssItemId: 999999 },
+    })),
+  );
+
+  const response = await worker.fetch(
+    apiRequest("/api/editor/pipeline/process", "POST", {
+      limit: 20,
+      maxMs: 0,
+    }),
+    env,
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.claimed, 5);
+  assert.equal(body.released, 5);
+  assert.equal(body.counts.pending, 6);
+  assert.equal(body.counts.processing, 0);
+});
+
 test("pipeline retry reopens only failed jobs without republishing", async () => {
   const db = testDb();
   const env = testEnv(db);
@@ -928,6 +955,88 @@ test("pipeline retry reopens only failed jobs without republishing", async () =>
   );
   assert.equal((await again.json()).retried, 0);
   assert.equal(db.prepare("SELECT COUNT(*) AS total FROM news").get().total, 0);
+});
+
+test("pipeline releases claimed jobs when the time budget is exhausted", async () => {
+  const db = testDb();
+  const env = testEnv(db);
+  const { feedId, itemId } = seedRssItem(db, {
+    link: "https://example.test/orcamento",
+  });
+
+  await enqueueRssItems(env.DB, {
+    feedId,
+    feedName: "Feed Teste",
+    items: [
+      {
+        id: itemId,
+        itemKey: "orcamento-1",
+        link: "https://example.test/orcamento",
+        title: "Item fora do orçamento",
+      },
+    ],
+  });
+
+  const result = await processQueueItems(env.DB, env, {
+    limit: 3,
+    maxMs: 0,
+    skipStale: true,
+  });
+
+  assert.equal(result.claimed, 1);
+  assert.equal(result.processed, 0);
+  assert.equal(result.released, 1);
+  assert.equal(result.counts.pending, 1);
+  assert.equal(result.counts.processing, 0);
+  assert.equal(
+    db
+      .prepare("SELECT pipeline_stage, extract_status FROM rss_items WHERE id=?")
+      .get(itemId).pipeline_stage,
+    "found",
+  );
+});
+
+test("pipeline recovers jobs stuck in processing after a timeout", async () => {
+  const db = testDb();
+  const env = testEnv(db);
+  const { feedId, itemId } = seedRssItem(db, {
+    link: "https://example.test/preso",
+  });
+
+  await enqueueRssItems(env.DB, {
+    feedId,
+    feedName: "Feed Teste",
+    items: [
+      {
+        id: itemId,
+        itemKey: "preso-1",
+        link: "https://example.test/preso",
+        title: "Item preso em processamento",
+      },
+    ],
+  });
+
+  const claimed = await claimQueueItems(env.DB, { limit: 1 });
+  assert.equal(claimed.length, 1);
+  db.prepare("UPDATE ingestion_queue SET updated_at=? WHERE id=?").run(
+    new Date(Date.now() - 180000).toISOString(),
+    claimed[0].id,
+  );
+
+  const result = await processQueueItems(env.DB, env, {
+    limit: 3,
+    maxMs: 0,
+  });
+
+  assert.equal(result.recovered, 1);
+  assert.equal(result.counts.processing, 0);
+  assert.equal(result.counts.pending, 1);
+  assert.equal(
+    db
+      .prepare("SELECT status FROM ingestion_queue WHERE id=?")
+      .get(claimed[0].id).status,
+    "pending",
+  );
 });
 
 test("pipeline enqueue accepts a batch of RSS item ids and deduplicates", async () => {

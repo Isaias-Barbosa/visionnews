@@ -160,6 +160,58 @@ export async function countQueueByStatus(DB) {
   return counts;
 }
 
+/** Devolve jobs reservados ao status pending, sem tocar em itens concluídos. */
+export async function releaseQueueItems(DB, jobs = []) {
+  const ids = [];
+
+  for (const job of Array.isArray(jobs) ? jobs : []) {
+    const id = Number(job?.id ?? job);
+    if (!Number.isSafeInteger(id) || id < 1) continue;
+
+    const result = await DB.prepare(
+      `UPDATE ingestion_queue
+       SET status='pending', error=NULL, updated_at=?
+       WHERE id=? AND status IN ('processing','failed')`,
+    )
+      .bind(nowIso(), id)
+      .run();
+
+    if (!Number(result?.meta?.changes || 0)) continue;
+    ids.push(id);
+
+    const rssItemId = Number(
+      job?.payload?.rssItemId ||
+        parseJson(job?.payload_json, {}).rssItemId ||
+        0,
+    );
+    if (Number.isSafeInteger(rssItemId) && rssItemId > 0) {
+      await updateRssItemPipeline(DB, rssItemId, {
+        pipeline_stage: "found",
+        extract_status: "pending",
+        last_pipeline_error: null,
+      });
+    }
+  }
+
+  return { released: ids.length, ids };
+}
+
+/** Recupera jobs presos em processing após um timeout da função. */
+export async function requeueStaleQueueItems(DB, options = {}) {
+  const olderThanMs = Math.max(1000, Number(options.olderThanMs) || 120000);
+  const limit = Math.min(50, Math.max(1, Number(options.limit) || 20));
+  const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+  const { results } = await DB.prepare(
+    `SELECT * FROM ingestion_queue
+     WHERE status='processing' AND updated_at < ?
+     ORDER BY id ASC LIMIT ?`,
+  )
+    .bind(cutoff, limit)
+    .all();
+
+  return releaseQueueItems(DB, results || []);
+}
+
 /** Reabre jobs que falharam, sem tocar em itens concluídos ou duplicatas. */
 export async function retryFailedQueueItems(DB, options = {}) {
   const limit = Math.min(20, Math.max(1, Number(options.limit) || 20));

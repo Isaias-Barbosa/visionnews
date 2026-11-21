@@ -6,6 +6,7 @@ db.exec(readFileSync('drizzle/0002_editorial_dashboard.sql','utf8'));
 db.exec(readFileSync('drizzle/0003_news_feature.sql','utf8'));
 db.exec(readFileSync('drizzle/0004_rss.sql','utf8'));
 db.exec(readFileSync('drizzle/0006_rss_style.sql','utf8'));
+db.exec(readFileSync('drizzle/0007_ingestion_pipeline.sql','utf8'));
 const env={
  ADMIN_EMAIL:'editor@example.com',
  DB:{prepare(sql){

@@ -26,9 +26,9 @@ Ao abrir uma notícia, a ação **Cadastrar notícia** envia o título, o resumo
 
 No dashboard, a lista de notícias e reviews permite marcar rascunhos e usar **Publicar selecionados** para publicar em lote. Cada item passa pela mesma validação do editor: rascunhos sem fonte oficial, sem texto mínimo ou com outro campo inválido são informados e permanecem como rascunho.
 
-A API editorial fica em `/api/editor/rss-feeds`, `/api/editor/rss-items`, `/api/editor/rss/refresh` e `/api/editor/news/bulk-publish`; os aliases `/api/rss/sources`, `/api/rss/articles` e `/api/rss/fetch` atendem integrações que usam o caminho público. Em SQLite/D1 as migrações são `drizzle/0004_rss.sql` e `drizzle/0005_rss_draft_covers.sql`; no PostgreSQL, `postgres/999_rss.sql`, `postgres/1000_rss_improvements.sql` e `postgres/1001_rss_draft_covers.sql`.
+A API editorial fica em `/api/editor/rss-feeds`, `/api/editor/rss-items`, `/api/editor/rss/refresh` e `/api/editor/news/bulk-publish`; os aliases `/api/rss/sources`, `/api/rss/articles` e `/api/rss/fetch` atendem integrações que usam o caminho público. Em SQLite/D1 as migrações são `drizzle/0004_rss.sql`, `drizzle/0005_rss_draft_covers.sql`, `drizzle/0006_rss_style.sql` e `drizzle/0007_ingestion_pipeline.sql`; no PostgreSQL, `postgres/999_rss.sql`, `postgres/1000_rss_improvements.sql`, `postgres/1001_rss_draft_covers.sql`, `postgres/1002_rss_style.sql` e `postgres/1003_ingestion_pipeline.sql`. Com o motor ativo, novos itens RSS entram automaticamente na fila `ingestion_queue` — o contador `queued` aparece no retorno do refresh. O processamento usa perfis por fonte: ANMTV prioriza o conteúdo do RSS e só busca o original quando ele é insuficiente; CR News e OtakuPT buscam a página original (removendo redes e duplicações); ANN força tradução PT-BR antes da reescrita. Fatos verificáveis viram sugestões em `ai_suggestions`; falha de extração marca o item para revisão sem inventar notícia. Nada disso cria ou publica notícia: a matéria final continua passando pelo editor. As rotas autenticadas do motor são `/api/editor/pipeline/queue`, `/api/editor/pipeline/enqueue`, `/api/editor/pipeline/process` e `/api/editor/pipeline/suggestions`; `/api/cron/pipeline` aceita um gatilho agendado com `Authorization: Bearer $CRON_SECRET`.
 
-A API valida as permissões no servidor usando os cabeçalhos de identidade confiáveis do gateway Sites e a variável privada `ADMIN_EMAIL`. A conta administradora concede permissões editoriais por e-mail em `/admin`. Editores também precisam ter acesso ao Site pela hospedagem. Somente a conta administradora acessa `/admin`. Não basta esconder botões ou conhecer o endereço do painel. Escritas exigem origem igual, JSON e versão atual do registro. Rascunhos/arquivados não são retornados pela API pública. Não existem senhas ou chaves no código.
+A API valida as permissões no servidor usando os cabeçalhos de identidade confiáveis do gateway Sites e a variável privada `ADMIN_EMAIL`. A conta administradora concede permissões editoriais por e-mail em `/admin`. Editores também precisam ter acesso ao Site pela hospedagem. Somente a conta administradora acessa `/admin`. Não basta esconder botões ou conhecer o endereço do painel. Escritas exigem origem igual, JSON e versão atual do registro. Rascunhos/arquivados não são retornados pela API pública. Não existem senhas ou chaves no código. A prévia de tradução usa `DEEPL_API_KEY` ou `DEEPL_AUTH_KEY` por padrão e, na ausência deles, `OPENROUTER_API_KEY`. As chaves ficam exclusivamente no ambiente privado do servidor e a prévia não grava a tradução no banco. O pipeline usa `OPENROUTER_TRANSLATION_MODEL` e `OPENROUTER_EDITORIAL_MODEL` para separar tradução de redação, `OPENROUTER_SITE_URL` para identificação junto ao provedor, `CRON_SECRET` para o gatilho agendado e `PIPELINE_MIN_WORDS` para ajustar o mínimo de palavras da extração. `/api/health` informa apenas qual provedor está configurado, nunca as chaves.
 
 ## Executar
 
@@ -39,6 +39,8 @@ npm run build
 npm test
 node --experimental-sqlite scripts/preview.mjs
 ```
+
+Após alterar arquivos em `server/`, rode `npm run build` antes de `npm test`: os testes importam o artefato gerado em `dist/server/index.js`.
 
 Para testar o editor **apenas localmente**, com identidade simulada e SQLite separado:
 
@@ -53,7 +55,7 @@ A prévia escuta somente em `127.0.0.1:4173`; os dados locais ficam em `.data/`,
 - `public/`: portal e painel administrativo.
 - `server/worker.mjs`: API, autorização e distribuição de arquivos.
 - `scripts/build.mjs`: empacota os arquivos no Worker ESM.
-- `drizzle/`: migração SQLite/D1, aplicada antes da publicação.
+- `drizzle/`: migração SQLite/D1, aplicada antes da publicação. `drizzle/meta/_journal.json` cobre `0000`–`0003`; as migrações `0004+` são aplicadas explicitamente pelos scripts de preview e hospedagem.
 - `tests/`: fluxos de publicação, permissões, conflitos e recursos do portal.
 - `.openai/hosting.json`: identidade do Site e vínculo D1 `DB`.
 
@@ -73,7 +75,7 @@ A grade da temporada é preenchida pela redação no painel; a prévia com horá
 
 - Configure o projeto Vercel com o repositório e as opções de `vercel.json`. O build usa Node 22 ou superior.
 - Conecte um banco **dedicado ao VisionNews** no Neon. Configure a URL com pool de conexões como `DATABASE_URL` e uma chave aleatória como `BETTER_AUTH_SECRET`, ambas no ambiente privado da Vercel. Para domínio próprio ou execução local, defina `BETTER_AUTH_URL` com a origem exata.
-- Um build de produção com `DATABASE_URL` aplica as migrações em `postgres/` automaticamente, em ordem, e registra o que já foi aplicado em `visionnews_migrations`. Não é necessário colar os arquivos no SQL Editor do Neon. Para aplicar manualmente fora do build, prefira `npm run db:migrate` com `DATABASE_URL` configurada; se for usar o SQL Editor, execute na ordem `0001_initial.sql`, `0002_news_feature.sql`, `999_rss.sql`, `1000_rss_improvements.sql` e `1001_rss_draft_covers.sql`. Consulte `/api/readiness` para verificar a configuração da conta e do banco.
+- Um build de produção com `DATABASE_URL` aplica as migrações em `postgres/` automaticamente, em ordem, e registra o que já foi aplicado em `visionnews_migrations`. Não é necessário colar os arquivos no SQL Editor do Neon. Para aplicar manualmente fora do build, prefira `npm run db:migrate` com `DATABASE_URL` configurada; se for usar o SQL Editor, execute na ordem `0001_initial.sql`, `0002_news_feature.sql`, `999_rss.sql`, `1000_rss_improvements.sql`, `1001_rss_draft_covers.sql`, `1002_rss_style.sql` e `1003_ingestion_pipeline.sql`. Consulte `/api/readiness` para verificar a configuração da conta e do banco.
 - Para preservar os conteúdos editoriais, exporte o D1 completo em SQL e execute `npm run db:import -- caminho/do/export.sql` contra o banco já migrado, antes de criar conteúdo editorial no novo destino. Faça o corte após conferir a cópia. O script mantém os IDs e rejeita um destino com conteúdo.
 - Configure `ADMIN_EMAIL` no servidor e crie a primeira conta com `npm run admin:create` em um terminal seguro, usando também `DATABASE_URL`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET` e a senha inicial em `ADMIN_INITIAL_PASSWORD`. Use uma senha nova e remova a variável inicial depois. O script recusa endereços que já tenham uma conta. Para editores, autorize a conta por e-mail no painel e verifique sua identidade antes de marcar a conta como verificada no PostgreSQL.
 - Contas da watchlist são do VisionNews. Leituras salvas são locais ao navegador e à origem. A versão inicial usa cadastro por e-mail e senha, sem confirmação ou recuperação por e-mail para leitores.

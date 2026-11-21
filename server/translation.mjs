@@ -262,7 +262,7 @@ export async function translateTexts(texts, env = process.env) {
 
   if (!apiKey) {
     throw new Error(
-      "A chave DEEPL_API_KEY não está configurada no servidor.",
+      "Configure DEEPL_API_KEY ou DEEPL_AUTH_KEY no servidor.",
     );
   }
 

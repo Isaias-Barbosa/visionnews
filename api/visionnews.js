@@ -125,6 +125,17 @@ return worker.fetch(forwarded, {
 
   // DeepL API
   DEEPL_API_KEY: process.env.DEEPL_API_KEY,
+  DEEPL_AUTH_KEY: process.env.DEEPL_AUTH_KEY,
+
+  // OpenRouter (tradução e redação editorial)
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+  OPENROUTER_TRANSLATION_MODEL: process.env.OPENROUTER_TRANSLATION_MODEL,
+  OPENROUTER_EDITORIAL_MODEL: process.env.OPENROUTER_EDITORIAL_MODEL,
+  OPENROUTER_SITE_URL: process.env.OPENROUTER_SITE_URL,
+
+  // Pipeline de ingestão
+  CRON_SECRET: process.env.CRON_SECRET,
+  PIPELINE_MIN_WORDS: process.env.PIPELINE_MIN_WORDS,
 
   SIGN_IN_PATH: "/login",
   ASSETS: editorialAssets,

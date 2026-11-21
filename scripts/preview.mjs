@@ -7,6 +7,7 @@ if(!db.prepare('PRAGMA table_info(news)').all().some(c=>c.name==='topic'))db.exe
 if(!db.prepare('PRAGMA table_info(news)').all().some(c=>c.name==='featured_at'))db.exec(readFileSync('drizzle/0003_news_feature.sql','utf8'));
 if(!db.prepare("SELECT name FROM sqlite_master WHERE name='rss_feeds'").get())db.exec(readFileSync('drizzle/0004_rss.sql','utf8').replace(/^\uFEFF/,''));
 if(!db.prepare('PRAGMA table_info(rss_items)').all().some(c=>c.name==='style_json'))db.exec(readFileSync('drizzle/0006_rss_style.sql','utf8').replace(/^\uFEFF/,''));
+if(!db.prepare('PRAGMA table_info(rss_items)').all().some(c=>c.name==='pipeline_stage'))db.exec(readFileSync('drizzle/0007_ingestion_pipeline.sql','utf8').replace(/^\uFEFF/,''));
 const mock=process.argv.includes('--admin');
 const env={
  ADMIN_EMAIL:mock?'local-editor@example.invalid':'',

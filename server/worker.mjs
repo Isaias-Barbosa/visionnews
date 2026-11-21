@@ -1,4 +1,17 @@
-import { createHash } from "node:crypto";
+import {
+  aiStatus,
+  hasDeepL,
+  hasOpenRouter,
+  translateWithProvider,
+} from "./ai.mjs";
+import { canonicalItemKey, legacyItemKey } from "./dedup.mjs";
+import { enqueueRssItems, processQueueItems } from "./pipeline.mjs";
+import {
+  countQueueByStatus,
+  getRssItemForPipeline,
+  listQueueItems,
+  listSuggestions,
+} from "./queue.mjs";
 import { fetchAndParseFeed, validateFeedUrl } from "./rss.mjs";
 import {
   animePlatforms,
@@ -6,7 +19,6 @@ import {
   fetchTrendingAnime,
   seasonFromQuarter,
 } from "./anime.mjs";
-import { translateTexts } from "./translation.mjs";
 
 const categories = ["Notícias", "Reviews", "Guias", "Cultura"];
 const statuses = ["draft", "published", "archived"];
@@ -162,11 +174,19 @@ async function canEdit(request, env) {
 }
 
 function rssItemKey(item) {
-  const identity = item.guid || item.link || item.title;
+  return legacyItemKey(item);
+}
 
-  return createHash("sha256")
-    .update(String(identity).trim().toLowerCase())
-    .digest("hex");
+function rssItemToQueueInput(row) {
+  return {
+    id: Number(row.id),
+    itemKey: row.item_key,
+    link: row.link,
+    title: row.title,
+    summary: row.summary,
+    content: row.content,
+    image: row.image_url || row.image,
+  };
 }
 
 function rssFeedId(value) {
@@ -208,6 +228,7 @@ function rssItemResponse(item) {
       ? Number(item.imported_news_id)
       : null,
     imported: Boolean(item.imported_at),
+    canonical_key: canonicalItemKey(item),
     style: style || { fonts: [], colors: [], backgrounds: [] },
   };
 }
@@ -305,7 +326,30 @@ async function rssPersistItems(DB, feedId, result) {
     inserted++;
   }
 
-  return { inserted, updated, insertedItems, total: result.items?.length || 0 };
+  // Novos itens entram no motor de ingestão em segundo plano. Falhas aqui
+  // nunca impedem a coleta RSS; o item continua disponível no radar.
+  let queued = 0;
+  if (insertedItems.length) {
+    try {
+      queued = (
+        await enqueueRssItems(DB, {
+          feedId,
+          feedName: String(result.title || ""),
+          items: insertedItems,
+        })
+      ).enqueued;
+    } catch (error) {
+      console.error("Falha ao enfileirar itens RSS:", error?.message || error);
+    }
+  }
+
+  return {
+    inserted,
+    updated,
+    insertedItems,
+    total: result.items?.length || 0,
+    queued,
+  };
 }
 
 async function rssTouchFeed(DB, feedId, result) {
@@ -562,6 +606,7 @@ async function refreshRssFeed(DB, feedId, prefetched = null) {
       total: persisted.total,
       inserted: persisted.inserted,
       updated: persisted.updated,
+      queued: persisted.queued || 0,
       autoImported,
       coversUpdated,
       fetchedAt: result.fetchedAt || rssNow(),
@@ -635,14 +680,15 @@ export function validateRecommendation(input) {
 }
 
 function json(value, status = 200) {
-  return new Response(JSON.stringify(value), {
-    status,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-    },
-  });
+  return securityHeaders(
+    new Response(JSON.stringify(value), {
+      status,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    }),
+  );
 }
 export function canAdmin(request, env) {
   const id = request.headers.get("oai-authenticated-user-id"),
@@ -824,7 +870,7 @@ function securityHeaders(response) {
   response.headers.set("Referrer-Policy", "no-referrer");
   response.headers.set(
   "Content-Security-Policy",
-  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' https://fonts.grida.co https://raw.githubusercontent.com; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; base-uri 'self'; form-action 'self'; object-src 'none'",
+  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' https://fonts.grida.co https://raw.githubusercontent.com; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'",
 );
   return response;
 }
@@ -970,7 +1016,40 @@ export async function handle(request, env) {
     path = url.pathname,
     routePath = mapRssAlias(path);
   try {
-    if (path === "/api/health") return json({ ok: true });
+    if (path === "/api/health") {
+      const ai = aiStatus(env);
+      return json({
+        ok: true,
+        database: Boolean(env.DB),
+        translation: {
+          provider: ai.translation.provider,
+          configured: ai.translation.configured,
+        },
+        ai,
+      });
+    }
+    if (
+      path === "/api/cron/pipeline" &&
+      ["GET", "POST"].includes(request.method)
+    ) {
+      const secret = String(env.CRON_SECRET || "").trim();
+      const provided = String(request.headers.get("authorization") || "")
+        .replace(/^Bearer\s+/i, "")
+        .trim();
+
+      if (!secret || provided !== secret) {
+        return json({ error: "Não autorizado." }, 401);
+      }
+
+      const limit = Math.min(
+        20,
+        Math.max(1, Number(url.searchParams.get("limit")) || 5),
+      );
+
+      return json(
+        await processQueueItems(env.DB, env, { limit }),
+      );
+    }
     if (path === "/api/fonts/catalog" && request.method === "GET") {
       try {
         const catalog = await fontCatalogData();
@@ -1141,7 +1220,7 @@ if (
   request.method === "POST"
 ) {
   try {
-    const input = await request.json();
+    const input = await bodyJson(request);
 
     const ids = input?.ids;
     const versions = input?.versions;
@@ -1265,16 +1344,17 @@ if (
       );
     }
 
-    if (!env.DEEPL_API_KEY && !env.DEEPL_AUTH_KEY) {
-  return json(
-    {
-      error: "A chave DEEPL_API_KEY não está configurada no servidor.",
-    },
-    503,
-  );
-}
+    if (!hasDeepL(env) && !hasOpenRouter(env)) {
+      return json(
+        {
+          error:
+            "Configure DEEPL_API_KEY/DEEPL_AUTH_KEY ou OPENROUTER_API_KEY no servidor.",
+        },
+        503,
+      );
+    }
     // A tradução acontece somente em memória.
-    const translations = await translateTexts(allTexts, env);
+    const translations = await translateWithProvider(allTexts, env);
 
     const translatedById = new Map(
       translations.map((item) => [item.id, item]),
@@ -1361,7 +1441,7 @@ if (
       error:
         error instanceof Error
           ? error.message
-          : "Não foi possível traduzir as notícias pelo DeepL.",
+          : "Não foi possível traduzir as notícias.",
     },
     502,
   );
@@ -1805,6 +1885,7 @@ if (
               },
               inserted: persisted.inserted,
               updated: persisted.updated,
+              queued: persisted.queued || 0,
               autoImported,
             },
             201,
@@ -1977,6 +2058,7 @@ if (
         const results = [];
         let inserted = 0;
         let updated = 0;
+        let queued = 0;
         let autoImported = 0;
         let coversUpdated = 0;
 
@@ -1987,6 +2069,7 @@ if (
           if (!result.error) {
             inserted += result.inserted || 0;
             updated += result.updated || 0;
+            queued += result.queued || 0;
             autoImported += result.autoImported || 0;
             coversUpdated += result.coversUpdated || 0;
           }
@@ -2001,11 +2084,177 @@ if (
           total: feeds.length,
           inserted,
           updated,
+          queued,
           autoImported,
           coversUpdated,
           failures: results.filter((result) => result.error).length,
           results,
         });
+      }
+
+      // ========================================
+      // PIPELINE - FILA, EXTRAÇÃO E SUGESTÕES DE IA
+      // ========================================
+
+      if (
+        routePath === "/api/editor/pipeline/queue" &&
+        request.method === "GET"
+      ) {
+        return json(
+          await listQueueItems(env.DB, {
+            status: url.searchParams.get("status") || "",
+            sourceType: url.searchParams.get("source") || "",
+            limit: Number(url.searchParams.get("limit")) || 30,
+            page: Number(url.searchParams.get("page")) || 1,
+          }),
+        );
+      }
+
+      if (
+        routePath === "/api/editor/pipeline/suggestions" &&
+        request.method === "GET"
+      ) {
+        const items = await listSuggestions(env.DB, {
+          rssItemId: Number(
+            url.searchParams.get("rssItemId") ||
+              url.searchParams.get("rss_item_id") ||
+              0,
+          ),
+          newsId: Number(
+            url.searchParams.get("newsId") ||
+              url.searchParams.get("news_id") ||
+              0,
+          ),
+          stage: url.searchParams.get("stage") || "",
+          status: url.searchParams.get("status") || "",
+          limit: Number(url.searchParams.get("limit")) || 30,
+        });
+
+        return json({ items, total: items.length, ai: aiStatus(env) });
+      }
+
+      if (
+        routePath === "/api/editor/pipeline/enqueue" &&
+        request.method === "POST"
+      ) {
+        let input;
+        try {
+          input = await bodyJson(request);
+        } catch {
+          return json({ error: "Conteúdo inválido." }, 400);
+        }
+
+        const rssItemId = Number(
+          input.rssItemId || input.rss_item_id || 0,
+        );
+        const feedId = Number(input.feedId || input.feed_id || 0);
+
+        if (rssItemId > 0) {
+          const item = await getRssItemForPipeline(env.DB, rssItemId);
+          if (!item) {
+            return json({ error: "Item RSS não encontrado." }, 404);
+          }
+
+          const queued = await enqueueRssItems(env.DB, {
+            feedId: Number(item.feed_id),
+            feedName: item.feed_name,
+            items: [rssItemToQueueInput(item)],
+          });
+
+          return json({
+            ...queued,
+            counts: await countQueueByStatus(env.DB),
+          });
+        }
+
+        if (feedId > 0) {
+          const feed = await env.DB.prepare(
+            "SELECT id, name FROM rss_feeds WHERE id=?",
+          )
+            .bind(feedId)
+            .first();
+
+          if (!feed) {
+            return json({ error: "Fonte RSS não encontrada." }, 404);
+          }
+
+          const { results } = await env.DB.prepare(
+            `SELECT * FROM rss_items
+             WHERE feed_id=? AND imported_at IS NULL
+             ORDER BY id DESC LIMIT 200`,
+          )
+            .bind(feedId)
+            .all();
+
+          const queued = await enqueueRssItems(env.DB, {
+            feedId,
+            feedName: feed.name,
+            items: (results || []).map(rssItemToQueueInput),
+          });
+
+          return json({
+            ...queued,
+            counts: await countQueueByStatus(env.DB),
+          });
+        }
+
+        if (input.all === true) {
+          const { results } = await env.DB.prepare(
+            `SELECT i.*, f.name AS feed_name
+             FROM rss_items i
+             INNER JOIN rss_feeds f ON f.id=i.feed_id
+             WHERE i.imported_at IS NULL
+             ORDER BY i.id DESC LIMIT 200`,
+          ).all();
+
+          const byFeed = new Map();
+          for (const row of results || []) {
+            const id = Number(row.feed_id);
+            if (!byFeed.has(id)) byFeed.set(id, []);
+            byFeed.get(id).push(row);
+          }
+
+          const totals = { enqueued: 0, skipped: 0, ids: [] };
+          for (const [id, rows] of byFeed) {
+            const queued = await enqueueRssItems(env.DB, {
+              feedId: id,
+              feedName: rows[0]?.feed_name || "Fonte RSS",
+              items: rows.map(rssItemToQueueInput),
+            });
+            totals.enqueued += queued.enqueued;
+            totals.skipped += queued.skipped;
+            totals.ids.push(...queued.ids);
+          }
+
+          return json({
+            ...totals,
+            counts: await countQueueByStatus(env.DB),
+          });
+        }
+
+        return json(
+          { error: "Informe rssItemId, feedId ou all." },
+          422,
+        );
+      }
+
+      if (
+        routePath === "/api/editor/pipeline/process" &&
+        request.method === "POST"
+      ) {
+        let input = {};
+        try {
+          input = await bodyJson(request);
+        } catch {
+          return json({ error: "Conteúdo inválido." }, 400);
+        }
+
+        const limit = Math.min(
+          20,
+          Math.max(1, Number(input.limit) || 5),
+        );
+
+        return json(await processQueueItems(env.DB, env, { limit }));
       }
 
       // ========================================

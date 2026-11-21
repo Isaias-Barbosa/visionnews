@@ -9,6 +9,14 @@ const MAX_FEED_SIZE = 2 * 1024 * 1024;
 const MAX_ITEMS = 100;
 const MAX_REDIRECTS = 5;
 const REQUEST_TIMEOUT = 12000;
+const FEED_HEADERS = {
+  'User-Agent': 'VisionNewsRSS/1.0',
+  'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*'
+};
+const ARTICLE_HEADERS = {
+  'User-Agent': 'VisionNewsExtractor/1.0',
+  'Accept': 'text/html, application/xhtml+xml, */*'
+};
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -129,7 +137,7 @@ function normalizeColor(value) {
 }
 
 /** Extrai apenas dicas de estilo do HTML do feed; o HTML em si é descartado. */
-function extractStyleHints(values) {
+export function extractStyleHints(values) {
   const html = decodeEntities(values.map(getValue).join(' '))
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
     .slice(0, 200000);
@@ -312,7 +320,11 @@ export async function validateFeedUrl(value) {
   return url.href;
 }
 
-function requestOnce(url, address) {
+function requestOnce(url, address, options = {}) {
+  const maxBytes = options.maxBytes || MAX_FEED_SIZE;
+  const headers = options.headers || FEED_HEADERS;
+  const sizeError = options.sizeError || 'O feed ultrapassou o limite de 2 MB.';
+
   return new Promise((resolve, reject) => {
     const transport = url.protocol === 'https:' ? https : http;
 
@@ -330,10 +342,7 @@ function requestOnce(url, address) {
 
         callback(null, address.address, family);
       },
-      headers: {
-        'User-Agent': 'VisionNewsRSS/1.0',
-        'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*'
-      }
+      headers
     }, response => {
       const chunks = [];
       let size = 0;
@@ -341,8 +350,8 @@ function requestOnce(url, address) {
       response.on('data', chunk => {
         size += chunk.length;
 
-        if (size > MAX_FEED_SIZE) {
-          request.destroy(new Error('O feed ultrapassou o limite de 2 MB.'));
+        if (size > maxBytes) {
+          request.destroy(new Error(sizeError));
           return;
         }
 
@@ -369,12 +378,12 @@ function requestOnce(url, address) {
   });
 }
 
-async function downloadFeed(initialUrl) {
+async function downloadPublic(initialUrl, options = {}) {
   let currentUrl = new URL(initialUrl);
 
   for (let attempt = 0; attempt <= MAX_REDIRECTS; attempt++) {
     const address = await resolvePublicHost(currentUrl);
-    const response = await requestOnce(currentUrl, address);
+    const response = await requestOnce(currentUrl, address, options);
 
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.location;
@@ -386,29 +395,67 @@ async function downloadFeed(initialUrl) {
       currentUrl = new URL(location, currentUrl);
 
       if (attempt === MAX_REDIRECTS) {
-        throw new Error('O feed excedeu o limite de redirecionamentos.');
+        throw new Error(options.redirectError || 'O feed excedeu o limite de redirecionamentos.');
       }
 
       continue;
     }
 
     if (response.status < 200 || response.status >= 300) {
-      throw new Error(`O feed respondeu com HTTP ${response.status}.`);
+      const label = options.statusLabel || 'O feed';
+      throw new Error(`${label} respondeu com HTTP ${response.status}.`);
     }
 
     if (!response.body.trim()) {
-      throw new Error('O feed retornou conteúdo vazio.');
+      throw new Error(options.emptyError || 'O feed retornou conteúdo vazio.');
     }
 
     return {
-      xml: response.body,
+      body: response.body,
       finalUrl: currentUrl.href,
       etag: response.headers.etag || null,
       lastModified: response.headers['last-modified'] || null
     };
   }
 
-  throw new Error('Não foi possível acessar o feed.');
+  throw new Error(options.finalError || 'Não foi possível acessar o feed.');
+}
+
+async function downloadFeed(initialUrl) {
+  const result = await downloadPublic(initialUrl, {
+    headers: FEED_HEADERS,
+    sizeError: 'O feed ultrapassou o limite de 2 MB.',
+    emptyError: 'O feed retornou conteúdo vazio.'
+  });
+
+  return {
+    xml: result.body,
+    finalUrl: result.finalUrl,
+    etag: result.etag,
+    lastModified: result.lastModified
+  };
+}
+
+/** Busca HTML público usando a mesma política SSRF do coletor RSS. */
+export async function fetchPublicHtml(value) {
+  const safeUrl = await validateFeedUrl(value);
+  const downloaded = await downloadPublic(safeUrl, {
+    headers: ARTICLE_HEADERS,
+    sizeError: 'A página ultrapassou o limite de 2 MB.',
+    emptyError: 'A página retornou conteúdo vazio.',
+    statusLabel: 'A página',
+    redirectError: 'A página excedeu o limite de redirecionamentos.',
+    finalError: 'Não foi possível acessar a página.'
+  });
+
+  return {
+    requestedUrl: safeUrl,
+    url: downloaded.finalUrl,
+    html: downloaded.body,
+    etag: downloaded.etag,
+    lastModified: downloaded.lastModified,
+    fetchedAt: new Date().toISOString()
+  };
 }
 
 function getAtomLink(item, baseUrl) {

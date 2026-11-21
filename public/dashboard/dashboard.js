@@ -37,6 +37,7 @@ let news = [],
   module = "news",
   pendingRss = null,
   rssWorkspace = null,
+  studioWorkspace = null,
   bulkSelected = new Set(),
   bulkVisible = [],
   trendingItems = [],
@@ -613,6 +614,19 @@ function mountRssWorkspace() {
   return rssWorkspace;
 }
 
+function mountStudioWorkspace() {
+  if (studioWorkspace) return studioWorkspace;
+
+  if (!window.VisionStudio) {
+    $("studioWorkspace").innerHTML =
+      '<p class="emptyList">O VisionNews Studio não pôde ser carregado. Recarregue a página.</p>';
+    return null;
+  }
+
+  studioWorkspace = window.VisionStudio.mount($("studioWorkspace"));
+  return studioWorkspace;
+}
+
 function importRssItem(item, feed) {
   if (!item || busy || !ready || !allowLeave()) return;
 
@@ -651,10 +665,94 @@ function importRssItem(item, feed) {
   }
 }
 
+// Abre uma sugestão do pipeline como texto simples no editor. Nenhuma sugestão
+// é aplicada diretamente em `news`: o rascunho só existe depois do salvamento.
+function openStudioSuggestion(suggestion, rssItem) {
+  if (!suggestion || busy || !ready || !allowLeave()) return;
+
+  if (studioWorkspace) studioWorkspace.close();
+
+  const payload = suggestion.payload || {},
+    item = rssItem || {},
+    sourceTitle = String(
+      payload.title || payload.item?.title || item.title || "Notícia sugerida",
+    ).trim();
+  let summary = String(
+    payload.summary || payload.item?.summary || item.summary || "",
+  ).trim();
+  if (summary.length < 15) {
+    summary = `${sourceTitle || "Matéria"} — sugestão do VisionNews Studio.`.slice(
+      0,
+      350,
+    );
+  }
+
+  let body = String(
+    payload.body || payload.item?.content || item.content || item.summary || "",
+  )
+    .trim()
+    .slice(0, 50000);
+  if (body.length < 40) {
+    body = `${body}\n\nRevise os fatos, o crédito e o link da fonte antes de salvar.`.trim();
+  }
+
+  const prefill = {
+    title: (sourceTitle || "Notícia sugerida").slice(0, 160),
+    summary: summary.slice(0, 350),
+    body,
+    body_format: "plain",
+    category: "Notícias",
+    author: "Redação VisionNews",
+    cover: VisionContent.https(item.image_url || item.image || payload.item?.image) || "",
+    source_url:
+      VisionContent.https(item.link || payload.item?.link || payload.sourceUrl) ||
+      "",
+    source_label: String(
+      item.feed_name || payload.item?.feedName || "Fonte RSS",
+    ).slice(0, 120),
+    status: "draft",
+    featured: false,
+    review_score: "",
+  };
+
+  const rssId = Number(item.id) || Number(suggestion.rss_item_id) || 0;
+  pendingRss = rssId
+    ? { id: rssId, title: prefill.title, feedName: prefill.source_label }
+    : null;
+
+  module = "news";
+  current = null;
+  bulkSelected.clear();
+  $("studioPanel").hidden = true;
+  $("rssPanel").hidden = true;
+  $("globalStatus").hidden = false;
+  $("stats").hidden = false;
+  document.querySelector(".adminWorkspace").hidden = false;
+  $("newArticle").hidden = false;
+  $("editorEmpty").hidden = true;
+  $("recommendationSuggest").hidden = true;
+  $("scheduleSuggest").hidden = true;
+  $("categoryFilter").hidden = false;
+
+  document.querySelectorAll("[data-module]").forEach((button) => {
+    const selected = button.dataset.module === "news";
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+
+  edit(null, prefill, true);
+  $("editorMode").textContent = "NOVA NOTÍCIA / VISIONNEWS STUDIO";
+  $("editorStatus").textContent =
+    "Sugestão da IA aberta como rascunho. Revise os fatos, o crédito e o link da fonte antes de salvar.";
+  dirty = true;
+  $("editorForm").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function switchModule(next) {
   if (busy || !allowLeave()) return;
 
   if (next !== "rss" && rssWorkspace) rssWorkspace.close();
+  if (next !== "studio" && studioWorkspace) studioWorkspace.close();
 
   module = next;
   dirty = false;
@@ -663,6 +761,8 @@ function switchModule(next) {
   bulkSelected.clear();
 
   const isRss = next === 'rss';
+  const isStudio = next === 'studio';
+  const fullPanel = isRss || isStudio;
 
   // Fecha os formulários editoriais
   $('editorForm').hidden = true;
@@ -670,12 +770,13 @@ function switchModule(next) {
   $('recommendationForm').hidden = true;
   $('editorEmpty').hidden = true;
 
-  // Alterna entre o painel RSS e o painel editorial
+  // Alterna entre os painéis de automação e o painel editorial
   $('rssPanel').hidden = !isRss;
-  $('globalStatus').hidden = isRss;
-  $('stats').hidden = isRss;
-  document.querySelector('.adminWorkspace').hidden = isRss;
-  $('newArticle').hidden = isRss;
+  $('studioPanel').hidden = !isStudio;
+  $('globalStatus').hidden = fullPanel;
+  $('stats').hidden = fullPanel;
+  document.querySelector('.adminWorkspace').hidden = fullPanel;
+  $('newArticle').hidden = fullPanel;
 
   // Atualiza a navegação
   document.querySelectorAll('[data-module]').forEach(button => {
@@ -685,9 +786,14 @@ function switchModule(next) {
     button.setAttribute('aria-pressed', String(selected));
   });
 
-  // No módulo RSS, o componente compartilhado cuida de todo o painel.
+  // Nesses módulos o componente dedicado cuida de todo o painel.
   if (isRss) {
     mountRssWorkspace();
+    return;
+  }
+
+  if (isStudio) {
+    mountStudioWorkspace();
     return;
   }
 
@@ -1418,4 +1524,11 @@ window.VisionDashboard = {
   refreshRss() {
     return rssWorkspace ? rssWorkspace.refresh() : Promise.resolve();
   },
+  openStudio() {
+    switchModule("studio");
+  },
+  refreshStudio() {
+    return studioWorkspace ? studioWorkspace.refresh() : Promise.resolve();
+  },
+  openStudioSuggestion,
 };

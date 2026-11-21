@@ -1,0 +1,372 @@
+/* VisionNews Studio — painel de automação editorial.
+ * Todos os estilos são escopados para não alterar o editor existente. */
+
+.studioHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.studioEyebrow {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--lime);
+  font-size: 10px;
+  letter-spacing: 2px;
+}
+
+.studioHead h2 {
+  margin: 0;
+  font: 700 40px/1 "Barlow Condensed", sans-serif;
+  letter-spacing: 0.5px;
+}
+
+.studioHead p {
+  max-width: 760px;
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.studioActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.studioButton {
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: #d7dce6;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.studioButton:hover:not(:disabled) {
+  border-color: var(--lime);
+  color: var(--lime);
+}
+
+.studioButton.primary {
+  border-color: var(--lime);
+  background: var(--lime);
+  color: #121711;
+  font-weight: 700;
+}
+
+.studioButton.primary:hover:not(:disabled) {
+  background: #c9ef4b;
+  color: #121711;
+}
+
+.studioButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.studioStatus {
+  min-height: 22px;
+  margin: 12px 0 18px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.studioStatus.error {
+  color: #ff9a9a;
+}
+
+.studioAi {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.studioChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #0d1017;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.studioChip b {
+  color: var(--lime);
+  font-weight: 600;
+}
+
+.studioStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.studioStat {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+}
+
+.studioStat strong {
+  display: block;
+  color: var(--lime);
+  font: 700 30px/1 "Barlow Condensed", sans-serif;
+}
+
+.studioStat span {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.studioLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.studioCard {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #131721;
+  overflow: hidden;
+}
+
+.studioCardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.studioCardHead h3 {
+  margin: 0;
+  font: 700 21px/1 "Barlow Condensed", sans-serif;
+}
+
+.studioCardHead small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.studioFilters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.studioFilters label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.studioFilters input,
+.studioFilters select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #0d1017;
+  color: #d7dce6;
+  font-size: 11px;
+}
+
+.studioFilters [data-studio-filter="search"] {
+  grid-column: 1 / -1;
+}
+
+.studioList {
+  max-height: 520px;
+  overflow: auto;
+}
+
+.studioRow {
+  padding: 14px 18px;
+  border-bottom: 1px solid #ffffff0a;
+}
+
+.studioRow:last-child {
+  border-bottom: 0;
+}
+
+.studioRowTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.studioTitle {
+  color: #e6eaf2;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.studioMeta {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.studioBadge {
+  flex: none;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.studioBadge[data-status="done"],
+.studioBadge[data-status="suggested"] {
+  border-color: #d9ff6055;
+  color: var(--lime);
+}
+
+.studioBadge[data-status="failed"],
+.studioBadge[data-status="error"] {
+  border-color: #ff9a9a66;
+  color: #ff9a9a;
+}
+
+.studioError {
+  margin: 8px 0 0;
+  color: #ff9a9a;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.studioEmpty {
+  margin: 0;
+  padding: 28px 18px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.studioRowButton {
+  margin-top: 10px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--lime);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.studioRowButton:hover {
+  border-color: var(--lime);
+}
+
+.studioPreview {
+  width: min(760px, 94vw);
+  max-height: 90vh;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #131721;
+  color: #d7dce6;
+}
+
+.studioPreview::backdrop {
+  background: #05070bd9;
+}
+
+.studioPreviewHead,
+.studioPreviewFoot {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.studioPreviewFoot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
+
+.studioPreviewHead h4 {
+  margin: 0 0 8px;
+  font: 700 25px/1.2 "Barlow Condensed", sans-serif;
+}
+
+.studioPreviewHead p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.studioPreviewBody {
+  max-height: 46vh;
+  margin: 0;
+  padding: 20px 22px;
+  overflow: auto;
+  background: #0d1017;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 12px/1.8 "DM Sans", sans-serif;
+}
+
+.studioPreviewReason {
+  padding: 12px 22px 0;
+  color: #ff9a9a;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.studioPreviewLink {
+  display: inline-block;
+  margin: 10px 22px 18px;
+  color: var(--lime);
+  font-size: 11px;
+  text-decoration: underline;
+}
+
+@media (max-width: 900px) {
+  .studioLayout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .studioHead h2 {
+    font-size: 32px;
+  }
+
+  .studioActions {
+    width: 100%;
+  }
+
+  .studioButton {
+    flex: 1 1 auto;
+  }
+}

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="robots" content="noindex,nofollow" />
-    <title>Dashboard editorial — VisionNews</title>
+    <title>VisionNews Studio</title>
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&amp;family=DM+Sans:wght@400;500;600;700&amp;display=swap"
@@ -12,11 +12,12 @@
     <link rel="stylesheet" href="/style.css" />
     <link rel="stylesheet" href="/admin/admin.css" />
     <link rel="stylesheet" href="/rss.css" />
+    <link rel="stylesheet" href="/dashboard/studio.css" />
   </head>
   <body class="adminBody">
     <header class="adminHeader">
       <a class="logo" href="/">VISION<span>NEWS</span></a
-      ><span class="adminBadge">DASHBOARD EDITORIAL</span
+      ><span class="adminBadge">VISIONNEWS STUDIO</span
       ><a id="adminLink" href="/admin" hidden>Administração</a
       ><a href="/" target="_blank" rel="noopener">Ver portal ↗</a>
     </header>
@@ -24,14 +25,19 @@
       <div class="adminTop">
         <div>
           <span class="eyebrow">CADA HISTÓRIA COMEÇA AQUI</span>
-          <h1>Redação VisionNews<span>.</span></h1>
-          <p>Cadastre, revise e publique os conteúdos do portal.</p>
+          <h1>VisionNews Studio<span>.</span></h1>
+          <p>
+            Automação editorial com revisão humana. Rascunhos ficam na redação;
+            nada é publicado sem sua decisão.
+          </p>
         </div>
         <button id="newArticle" class="primary">＋ Novo conteúdo</button>
       </div>
       <div class="deskLayout">
         <nav class="adminTabs" aria-label="Áreas da redação">
-          <button type="button" data-module="news" class="selected">
+          <button type="button" data-module="studio" id="studioTab">
+            VisionNews Studio</button
+          ><button type="button" data-module="news" class="selected">
             Notícias e matérias</button
           ><button type="button" data-module="reviews">Reviews</button
           ><button type="button" data-module="schedule">
@@ -44,6 +50,9 @@
 </button>
     </nav>
         <div class="deskContent">
+            <section id="studioPanel" class="dashboardPanel" hidden>
+              <div id="studioWorkspace"></div>
+            </section>
             <section id="rssPanel" class="dashboardPanel" hidden>
               <div id="rssWorkspace"></div>
             </section>
@@ -805,6 +814,7 @@
     <script src="/admin/editor.js"></script>
     <script src="/rss-sources.js"></script>
     <script src="/rss.js"></script>
+    <script src="/dashboard/studio.js"></script>
     <script src="/dashboard/dashboard.js"></script>
   </body>
 </html>

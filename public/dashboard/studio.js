@@ -196,6 +196,37 @@
       });
     }
 
+    function hasRewriteSuggestion(item) {
+      const rssId = Number(item?.payload?.rssItemId || 0);
+      if (!rssId) return false;
+      return state.suggestions.some(
+        (entry) =>
+          Number(entry.rss_item_id) === rssId && entry.stage === 'rewrite',
+      );
+    }
+
+    function queueNote(item) {
+      if (item.status !== 'done') return '';
+      if (item.news_id) {
+        return `Já cadastrado como rascunho #${Number(item.news_id)}: itens importados não passam pela IA.`;
+      }
+      if (!hasRewriteSuggestion(item)) {
+        return 'Concluído sem sugestão de redação: a extração pode não ter produzido fatos suficientes.';
+      }
+      return 'Sugestão de redação disponível na coluna ao lado.';
+    }
+
+    function emptySuggestions() {
+      const orphans = (state.queue.items || []).filter(
+        (item) => item.status === 'done' && !hasRewriteSuggestion(item),
+      );
+      return `<p class="studioEmpty">Ainda não há sugestões para este filtro.</p>${
+        orphans.length
+          ? `<p class="studioNote">${orphans.length} item(ns) “Concluído” não gerou sugestão: itens já cadastrados como rascunho pulam a IA; os demais podem ter falhado na extração.</p>`
+          : ''
+      }`;
+    }
+
     function renderAi() {
       const ai = state.ai || {};
       const translation = ai.translation || {};
@@ -270,6 +301,7 @@
             .map((item) => {
               const payload = item.payload || {};
               const title = String(payload.title || item.item_key || 'Item sem título');
+              const note = queueNote(item);
               return `<article class="studioRow" data-queue-id="${Number(item.id)}">
                 <div class="studioRowTop">
                   <strong class="studioTitle">${esc(title)}</strong>
@@ -282,6 +314,7 @@
                     item.priority || 0,
                   )} · tentativas ${Number(item.attempts || 0)}
                 </div>
+                ${note ? `<p class="studioNote">${esc(note)}</p>` : ''}
                 ${item.error ? `<p class="studioError">${esc(item.error)}</p>` : ''}
               </article>`;
             })
@@ -350,7 +383,7 @@
               </article>`;
             })
             .join('')
-        : '<p class="studioEmpty">Ainda não há sugestões para este filtro.</p>';
+        : emptySuggestions();
     }
 
     function render() {

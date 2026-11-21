@@ -37,6 +37,9 @@ test('studio frontend reads the pipeline and never publishes automatically', () 
   assert.match(studio, /function esc\(/);
   assert.match(studio, /textContent/);
   assert.match(studio, /safeHttps/);
+  assert.match(studio, /function hasRewriteSuggestion/);
+  assert.match(studio, /function queueNote/);
+  assert.match(studio, /não gerou sugestão/);
 });
 
 test('dashboard integrates studio without changing editorial publication', () => {

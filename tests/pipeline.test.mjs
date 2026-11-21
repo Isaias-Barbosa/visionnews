@@ -786,6 +786,41 @@ test("pipeline routes expose queue and suggestions without publishing", async ()
   assert.equal(feedId > 0, true);
 });
 
+test("pipeline enqueue accepts a batch of RSS item ids and deduplicates", async () => {
+  const db = testDb();
+  const env = testEnv(db);
+  const first = seedRssItem(db, { link: "https://example.test/lote-1" });
+  const second = seedRssItem(db, {
+    link: "https://example.test/lote-2",
+    feedUrl: "https://example.test/feed-lote-2.xml",
+  });
+
+  const response = await worker.fetch(
+    apiRequest("/api/editor/pipeline/enqueue", "POST", {
+      rssItemIds: [first.itemId, second.itemId, first.itemId, 999999],
+    }),
+    env,
+  );
+  assert.equal(response.status, 200);
+
+  const body = await response.json();
+  assert.equal(body.enqueued, 2);
+  assert.equal(body.skipped, 1);
+  assert.equal(body.ids.length, 2);
+  assert.equal(body.counts.pending, 2);
+
+  const again = await worker.fetch(
+    apiRequest("/api/editor/pipeline/enqueue", "POST", {
+      rssItemIds: [first.itemId, second.itemId],
+    }),
+    env,
+  );
+  const againBody = await again.json();
+  assert.equal(againBody.enqueued, 0);
+  assert.equal(againBody.skipped, 2);
+  assert.equal(db.prepare("SELECT COUNT(*) AS total FROM news").get().total, 0);
+});
+
 test("source profiles route each feed to its own extraction rule", async () => {
   assert.equal(sourceProfile({ feed_name: "Anime News Network" }).name, "ann");
   assert.equal(

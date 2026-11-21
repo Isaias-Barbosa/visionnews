@@ -69,3 +69,19 @@ test('administrative links use the new studio name', () => {
     assert.ok(read(path).includes('VisionNews Studio'), path);
   }
 });
+
+test('RSS radar supports batch selection for drafts and production queue', () => {
+  const radar = read('public/rss.js');
+  const radarCss = read('public/rss.css');
+
+  assert.match(radar, /data-role="bulkAll"/);
+  assert.match(radar, /data-action="bulk-draft"/);
+  assert.match(radar, /data-action="bulk-queue"/);
+  assert.match(radar, /data-pick="/);
+  assert.match(radar, /\/rss-items\/\$\{id\}\/import/);
+  assert.match(radar, /rssItemIds: ids/);
+  assert.match(radar, /function isNew\(item\)/);
+  assert.match(radarCss, /\.rssBulkBar/);
+  assert.match(radarCss, /\.rssPickCheck/);
+  assert.ok(!radar.includes('status: \'published\''));
+});

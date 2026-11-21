@@ -2148,6 +2148,43 @@ if (
           input.rssItemId || input.rss_item_id || 0,
         );
         const feedId = Number(input.feedId || input.feed_id || 0);
+        const rssItemIdsRaw = Array.isArray(input.rssItemIds)
+          ? input.rssItemIds
+          : Array.isArray(input.rss_item_ids)
+            ? input.rss_item_ids
+            : [];
+        const rssItemIds = [
+          ...new Set(
+            rssItemIdsRaw
+              .map(Number)
+              .filter((id) => Number.isSafeInteger(id) && id > 0),
+          ),
+        ].slice(0, 200);
+
+        if (rssItemIds.length) {
+          const totals = { enqueued: 0, skipped: 0, ids: [] };
+          for (const id of rssItemIds) {
+            const item = await getRssItemForPipeline(env.DB, id);
+            if (!item) {
+              totals.skipped++;
+              continue;
+            }
+
+            const queued = await enqueueRssItems(env.DB, {
+              feedId: Number(item.feed_id),
+              feedName: item.feed_name,
+              items: [rssItemToQueueInput(item)],
+            });
+            totals.enqueued += queued.enqueued;
+            totals.skipped += queued.skipped;
+            totals.ids.push(...queued.ids);
+          }
+
+          return json({
+            ...totals,
+            counts: await countQueueByStatus(env.DB),
+          });
+        }
 
         if (rssItemId > 0) {
           const item = await getRssItemForPipeline(env.DB, rssItemId);
@@ -2233,7 +2270,7 @@ if (
         }
 
         return json(
-          { error: "Informe rssItemId, feedId ou all." },
+          { error: "Informe rssItemId, rssItemIds, feedId ou all." },
           422,
         );
       }

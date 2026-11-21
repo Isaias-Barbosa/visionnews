@@ -162,6 +162,19 @@
             <h3>Últimas notícias</h3>
             <span data-role="total"></span>
           </div>
+          <div class="rssBulkBar" data-role="bulkBar">
+            <label class="rssBulkAll">
+              <input type="checkbox" data-role="bulkAll" />
+              Selecionar novas desta página
+            </label>
+            <span class="rssBulkCount" data-role="bulkCount"></span>
+            <button type="button" class="rssButton small" data-action="bulk-draft" data-role="bulkDraft" disabled>
+              Cadastrar rascunhos
+            </button>
+            <button type="button" class="rssButton small primary" data-action="bulk-queue" data-role="bulkQueue" disabled>
+              Enviar para fila de produção
+            </button>
+          </div>
           <div class="rssList" data-role="list" aria-live="polite"></div>
           <nav class="rssPager" data-role="pager" aria-label="Paginação das notícias RSS"></nav>
         </section>
@@ -240,6 +253,10 @@
     const search = find('search');
     const feedSelect = find('feed');
     const importedSelect = find('imported');
+    const bulkAll = find('bulkAll');
+    const bulkCount = find('bulkCount');
+    const bulkDraft = find('bulkDraft');
+    const bulkQueue = find('bulkQueue');
     const detailDialog = find('detail');
     const detailBody = find('detailBody');
     const feedDialog = find('feedDialog');
@@ -260,6 +277,7 @@
       feed: 'all',
       imported: 'all',
       q: '',
+      selected: new Set(),
       loading: false,
       busy: false,
       editingFeed: null,
@@ -273,6 +291,24 @@
     function setStatus(message, kind = '') {
       status.textContent = message || '';
       status.className = 'rssStatus' + (kind ? ` ${kind}` : '');
+    }
+
+    function isNew(item) {
+      return !item.imported_at && !item.imported_news_id;
+    }
+
+    function selectedIds() {
+      return [...state.selected];
+    }
+
+    function renderBulkBar() {
+      const fresh = state.items.filter(isNew);
+      const all = fresh.length > 0 && fresh.every((item) => state.selected.has(Number(item.id)));
+      bulkAll.checked = all;
+      bulkAll.indeterminate = state.selected.size > 0 && !all;
+      bulkCount.textContent = `${state.selected.size} selecionada(s) · ${fresh.length} nova(s) nesta página`;
+      bulkDraft.disabled = bulkQueue.disabled =
+        state.busy || state.selected.size === 0;
     }
 
     // -------------------------------------------------------------- fontes
@@ -375,36 +411,45 @@
     // -------------------------------------------------------------- notícias
 
     function itemCard(item) {
+      const id = Number(item.id);
       const title = item.title || 'Sem título';
       const feedName = item.feed_name || 'Fonte RSS';
       const image = safeImage(item.image_url);
       const imported = Boolean(item.imported_at || item.imported_news_id);
       const summary = String(item.summary || '').slice(0, 240);
       const date = formatDate(item.published_at || item.created_at);
+      const pickable = !imported;
 
       return `
-        <button type="button" class="rssCard" data-item="${Number(item.id)}" aria-label="Abrir notícia: ${html(title)}">
-          <span class="rssCardCover">
-            ${
-              image
-                ? `<img src="${html(image)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
-                : `<span class="rssCardFallback">${html(initialOf(feedName || title))}</span>`
-            }
-          </span>
-          <span class="rssCardBody">
-            <span class="rssCardTop">
-              <span class="rssCardFeed">${html(feedName)}</span>
+        <div class="rssPick" ${pickable ? `data-pick-wrap="${id}"` : ''}>
+          ${
+            pickable
+              ? `<label class="rssPickCheck"><input type="checkbox" data-pick="${id}" ${state.selected.has(id) ? 'checked' : ''} aria-label="Selecionar notícia: ${html(title)}"><span>Selecionar</span></label>`
+              : ''
+          }
+          <button type="button" class="rssCard" data-item="${id}" aria-label="Abrir notícia: ${html(title)}">
+            <span class="rssCardCover">
               ${
-                imported
-                  ? '<span class="rssPill imported">Cadastrada</span>'
-                  : '<span class="rssPill">Nova</span>'
+                image
+                  ? `<img src="${html(image)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+                  : `<span class="rssCardFallback">${html(initialOf(feedName || title))}</span>`
               }
             </span>
-            <span class="rssCardTitle">${html(title)}</span>
-            ${summary ? `<span class="rssCardSummary">${html(summary)}</span>` : ''}
-            ${date ? `<span class="rssCardFoot">${html(date)}</span>` : ''}
-          </span>
-        </button>
+            <span class="rssCardBody">
+              <span class="rssCardTop">
+                <span class="rssCardFeed">${html(feedName)}</span>
+                ${
+                  imported
+                    ? '<span class="rssPill imported">Cadastrada</span>'
+                    : '<span class="rssPill">Nova</span>'
+                }
+              </span>
+              <span class="rssCardTitle">${html(title)}</span>
+              ${summary ? `<span class="rssCardSummary">${html(summary)}</span>` : ''}
+              ${date ? `<span class="rssCardFoot">${html(date)}</span>` : ''}
+            </span>
+          </button>
+        </div>
       `;
     }
 
@@ -436,11 +481,13 @@
           </div>
         `;
         renderPager();
+        renderBulkBar();
         return;
       }
 
       list.innerHTML = state.items.map(itemCard).join('');
       renderPager();
+      renderBulkBar();
     }
 
     async function loadItems() {
@@ -475,6 +522,13 @@
         state.pages = Number(data.pages || 0);
         state.total = Number(data.total || 0);
 
+        const freshIds = new Set(
+          state.items.filter(isNew).map((item) => Number(item.id)),
+        );
+        for (const id of state.selected) {
+          if (!freshIds.has(id)) state.selected.delete(id);
+        }
+
         if (state.pages && state.page > state.pages) {
           state.page = state.pages;
           state.loading = false;
@@ -494,6 +548,86 @@
       } finally {
         state.loading = false;
         list.removeAttribute('aria-busy');
+      }
+    }
+
+    // -------------------------------------------------------------- ações em lote
+
+    async function bulkToDrafts() {
+      const ids = selectedIds();
+      if (!ids.length || state.busy) return;
+
+      state.busy = true;
+      renderBulkBar();
+      setStatus('Cadastrando rascunhos…');
+
+      let created = 0;
+      let skipped = 0;
+      const errors = [];
+
+      for (const id of ids) {
+        try {
+          const data = await request(`/rss-items/${id}/import`, {
+            method: 'POST',
+          });
+          if (data?.item || data?.newsId || data?.ok) created++;
+          else skipped++;
+        } catch (error) {
+          if (error.status === 409) skipped++;
+          else errors.push(error.message);
+        }
+      }
+
+      state.busy = false;
+      state.selected.clear();
+      renderBulkBar();
+      await loadItems();
+
+      const detail = `${created} rascunho(s) criado(s), ${skipped} já cadastrado(s).`;
+      setStatus(
+        errors.length ? `${detail} Falha(s): ${errors[0]}` : detail,
+        errors.length ? 'error' : '',
+      );
+
+      if (typeof options.onBulkDraft === 'function') {
+        options.onBulkDraft({ ids, created, skipped, errors });
+      }
+    }
+
+    async function bulkToQueue() {
+      const ids = selectedIds();
+      if (!ids.length || state.busy) return;
+
+      state.busy = true;
+      renderBulkBar();
+      setStatus('Enviando itens para a fila de produção…');
+
+      try {
+        const data = await request('/pipeline/enqueue', {
+          method: 'POST',
+          body: JSON.stringify({ rssItemIds: ids }),
+        });
+
+        state.busy = false;
+        state.selected.clear();
+        renderBulkBar();
+        await loadItems();
+        setStatus(
+          `Fila atualizada: ${Number(data.enqueued || 0)} item(ns) enfileirado(s), ${Number(
+            data.skipped || 0,
+          )} já conhecido(s). Nada foi publicado.`,
+        );
+
+        if (typeof global.VisionDashboard?.refreshStudio === 'function') {
+          global.VisionDashboard.refreshStudio();
+        }
+        if (typeof options.onBulkQueue === 'function') {
+          options.onBulkQueue({ ids, ...data });
+        }
+      } catch (error) {
+        state.busy = false;
+        renderBulkBar();
+        setStatus(error.message, 'error');
       }
     }
 
@@ -859,7 +993,9 @@
       if (actionButton) {
         const action = actionButton.dataset.action;
 
-        if (action === 'add-feed') openFeedDialog();
+        if (action === 'bulk-draft') bulkToDrafts();
+        else if (action === 'bulk-queue') bulkToQueue();
+        else if (action === 'add-feed') openFeedDialog();
         else if (action === 'close-feed-dialog') closeFeedDialog();
         else if (action === 'close-detail') closeDetail();
         else if (action === 'refresh-all') refreshAll();
@@ -886,6 +1022,35 @@
 
       const itemButton = event.target.closest('[data-item]');
       if (itemButton) openItem(Number(itemButton.dataset.item));
+    });
+
+    root.addEventListener('change', (event) => {
+      const pick = event.target.closest('[data-pick]');
+      if (!pick) return;
+
+      const id = Number(pick.dataset.pick);
+      if (
+        !state.items.some((item) => Number(item.id) === id && isNew(item))
+      ) {
+        return;
+      }
+
+      if (pick.checked) state.selected.add(id);
+      else state.selected.delete(id);
+
+      const wrap = pick.closest('[data-pick-wrap]');
+      if (wrap) wrap.dataset.selected = String(pick.checked);
+      renderBulkBar();
+    });
+
+    bulkAll.addEventListener('change', () => {
+      const fresh = state.items.filter(isNew);
+      if (bulkAll.checked) {
+        fresh.forEach((item) => state.selected.add(Number(item.id)));
+      } else {
+        state.selected.clear();
+      }
+      renderItems();
     });
 
     search.addEventListener('input', () => {

@@ -8,6 +8,7 @@ import {
   generateEditorialSuggestion,
   translationModel,
   translateWithOpenRouter,
+  translateWithProvider,
 } from "../server/ai.mjs";
 import { extractArticleDetailed } from "../server/article.mjs";
 import {
@@ -399,6 +400,71 @@ test("OpenRouter translation uses the configured model and keeps text ids", asyn
   }
 });
 
+test("translation falls back from a failing DeepL to OpenRouter without losing ids", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    if (String(url).includes("deepl")) {
+      return new Response(
+        JSON.stringify({ message: "Authorization failed" }),
+        { status: 401, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                translations: [
+                  { id: "titulo", text: "Título traduzido" },
+                  { id: "corpo", text: "Corpo traduzido" },
+                ],
+              }),
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+
+  try {
+    const result = await translateWithProvider(
+      [
+        { id: "titulo", text: "Original title" },
+        { id: "corpo", text: "Original body" },
+      ],
+      {
+        DEEPL_API_KEY: "chave-invalida:fx",
+        OPENROUTER_API_KEY: "sk-teste",
+      },
+    );
+
+    assert.deepEqual(result, [
+      { id: "titulo", text: "Título traduzido" },
+      { id: "corpo", text: "Corpo traduzido" },
+    ]);
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].url, /deepl/);
+    assert.match(calls[1].url, /openrouter\.ai/);
+
+    let rejected = false;
+    try {
+      await translateWithProvider([{ id: "titulo", text: "Original title" }], {
+        DEEPL_API_KEY: "chave-invalida:fx",
+      });
+    } catch {
+      rejected = true;
+    }
+    assert.equal(rejected, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("editorial suggestion uses verified facts, credits the source and refuses thin input", async () => {
   const originalFetch = globalThis.fetch;
   let payload = null;
@@ -784,6 +850,84 @@ test("pipeline routes expose queue and suggestions without publishing", async ()
     null,
   );
   assert.equal(feedId > 0, true);
+});
+
+test("pipeline retry reopens only failed jobs without republishing", async () => {
+  const db = testDb();
+  const env = testEnv(db);
+  const failed = seedRssItem(db, { link: "https://example.test/falha-retry" });
+  const done = seedRssItem(db, {
+    link: "https://example.test/concluido-retry",
+    feedUrl: "https://example.test/feed-concluido.xml",
+  });
+
+  await enqueueRssItems(env.DB, {
+    feedId: failed.feedId,
+    feedName: "Feed Teste",
+    items: [
+      {
+        id: failed.itemId,
+        itemKey: "retry-falha",
+        link: "https://example.test/falha-retry",
+        title: "Falha por chave ausente",
+      },
+    ],
+  });
+  await enqueueRssItems(env.DB, {
+    feedId: done.feedId,
+    feedName: "Feed Teste",
+    items: [
+      {
+        id: done.itemId,
+        itemKey: "retry-concluido",
+        link: "https://example.test/concluido-retry",
+        title: "Item concluído",
+      },
+    ],
+  });
+
+  const failedJobs = await claimQueueItems(env.DB, { limit: 1 });
+  await finishQueueItem(env.DB, failedJobs[0].id, {
+    status: "failed",
+    error: "A chave OPENROUTER_API_KEY não está configurada no servidor.",
+  });
+  const doneJobs = await claimQueueItems(env.DB, { limit: 1 });
+  await finishQueueItem(env.DB, doneJobs[0].id, { status: "done" });
+
+  const response = await worker.fetch(
+    apiRequest("/api/editor/pipeline/retry", "POST", { limit: 20 }),
+    env,
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.retried, 1);
+  assert.deepEqual(body.ids, [failedJobs[0].id]);
+  assert.equal(body.counts.failed, 0);
+  assert.equal(body.counts.pending, 1);
+  assert.equal(body.counts.done, 1);
+
+  const reopened = db
+    .prepare("SELECT status, error, attempts FROM ingestion_queue WHERE id=?")
+    .get(failedJobs[0].id);
+  assert.equal(reopened.status, "pending");
+  assert.equal(reopened.error, null);
+  assert.equal(reopened.attempts, 0);
+
+  const rssRow = db
+    .prepare(
+      "SELECT pipeline_stage, extract_status, last_pipeline_error FROM rss_items WHERE id=?",
+    )
+    .get(failed.itemId);
+  assert.equal(rssRow.pipeline_stage, "found");
+  assert.equal(rssRow.extract_status, "pending");
+  assert.equal(rssRow.last_pipeline_error, null);
+
+  const again = await worker.fetch(
+    apiRequest("/api/editor/pipeline/retry", "POST", { limit: 20 }),
+    env,
+  );
+  assert.equal((await again.json()).retried, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS total FROM news").get().total, 0);
 });
 
 test("pipeline enqueue accepts a batch of RSS item ids and deduplicates", async () => {

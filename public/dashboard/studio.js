@@ -104,6 +104,7 @@
           <button type="button" class="studioButton" data-studio-action="refresh">Atualizar</button>
           <button type="button" class="studioButton primary" data-studio-action="process">Processar lote</button>
           <button type="button" class="studioButton" data-studio-action="enqueue">Enfileirar pendentes</button>
+          <button type="button" class="studioButton" data-studio-action="retry">Reprocessar falhas</button>
         </div>
       </div>
       <p class="studioStatus" data-studio="status" role="status" aria-live="polite">Conectando ao pipeline…</p>
@@ -473,7 +474,13 @@
       let failed = false;
       state.busy = true;
       syncButtons();
-      status(name === 'process' ? 'Processando lote…' : 'Enfileirando itens pendentes…');
+      status(
+        name === 'process'
+          ? 'Processando lote…'
+          : name === 'retry'
+            ? 'Reabrindo falhas e processando lote…'
+            : 'Enfileirando itens pendentes…',
+      );
 
       try {
         if (name === 'process') {
@@ -484,6 +491,19 @@
           message = `Lote processado: ${Number(result.claimed || 0)} item(ns) reservado(s), ${Number(
             result.processed || 0,
           )} resultado(s). Nenhuma publicação automática.`;
+        } else if (name === 'retry') {
+          const retry = await api('/api/editor/pipeline/retry', {
+            method: 'POST',
+            body: JSON.stringify({ limit: 20 }),
+          });
+          const retried = Number(retry.retried || 0);
+          const processed = await api('/api/editor/pipeline/process', {
+            method: 'POST',
+            body: JSON.stringify({ limit: 20 }),
+          });
+          message = `${retried} falha(s) reaberta(s); lote processado: ${Number(
+            processed.claimed || 0,
+          )} item(ns). Nenhuma publicação automática.`;
         } else {
           const result = await api('/api/editor/pipeline/enqueue', {
             method: 'POST',

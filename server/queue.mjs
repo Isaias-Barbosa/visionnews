@@ -160,6 +160,49 @@ export async function countQueueByStatus(DB) {
   return counts;
 }
 
+/** Reabre jobs que falharam, sem tocar em itens concluídos ou duplicatas. */
+export async function retryFailedQueueItems(DB, options = {}) {
+  const limit = Math.min(20, Math.max(1, Number(options.limit) || 20));
+  const { results } = await DB.prepare(
+    `SELECT * FROM ingestion_queue
+     WHERE status='failed'
+     ORDER BY id ASC LIMIT ?`,
+  )
+    .bind(limit)
+    .all();
+
+  const ids = [];
+  const rssItemIds = new Set();
+
+  for (const row of results || []) {
+    const payload = parseJson(row.payload_json, {});
+    const rssItemId = Number(payload.rssItemId || 0);
+    if (Number.isSafeInteger(rssItemId) && rssItemId > 0) {
+      rssItemIds.add(rssItemId);
+    }
+
+    const result = await DB.prepare(
+      `UPDATE ingestion_queue
+       SET status='pending', error=NULL, attempts=0, updated_at=?
+       WHERE id=? AND status='failed'`,
+    )
+      .bind(nowIso(), row.id)
+      .run();
+
+    if (Number(result?.meta?.changes || 0)) ids.push(Number(row.id));
+  }
+
+  for (const rssItemId of rssItemIds) {
+    await updateRssItemPipeline(DB, rssItemId, {
+      pipeline_stage: "found",
+      extract_status: "pending",
+      last_pipeline_error: null,
+    });
+  }
+
+  return { retried: ids.length, ids, counts: await countQueueByStatus(DB) };
+}
+
 export async function listQueueItems(DB, options = {}) {
   const conditions = [];
   const parameters = [];

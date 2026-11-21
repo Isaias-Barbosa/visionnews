@@ -27,6 +27,7 @@ test('studio frontend reads the pipeline and never publishes automatically', () 
     '/api/editor/pipeline/queue',
     '/api/editor/pipeline/enqueue',
     '/api/editor/pipeline/process',
+    '/api/editor/pipeline/retry',
     '/api/editor/pipeline/suggestions',
   ]) {
     assert.ok(studio.includes(route), `rota ausente: ${route}`);
@@ -40,6 +41,9 @@ test('studio frontend reads the pipeline and never publishes automatically', () 
   assert.match(studio, /function hasRewriteSuggestion/);
   assert.match(studio, /function queueNote/);
   assert.match(studio, /não gerou sugestão/);
+  assert.match(studio, /data-studio-action="retry"/);
+  assert.match(studio, /Reprocessar falhas/);
+  assert.match(studio, /limit: 20/);
 });
 
 test('dashboard integrates studio without changing editorial publication', () => {

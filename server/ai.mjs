@@ -227,7 +227,14 @@ export async function translateWithProvider(texts, env, options = {}) {
         "Configure DEEPL_API_KEY/DEEPL_AUTH_KEY ou OPENROUTER_API_KEY no servidor.",
       );
     }
-    return translateTexts(texts, env);
+    try {
+      return await translateTexts(texts, env);
+    } catch (error) {
+      // O DeepL continua padrão, mas uma chave inválida ou sem cota não pode
+      // bloquear a tradução quando o OpenRouter também está configurado.
+      if (options.fallback === false || !hasOpenRouter(env)) throw error;
+      return translateWithOpenRouter(texts, env, options);
+    }
   }
 
   if (provider === "openrouter") return translateWithOpenRouter(texts, env, options);

@@ -11,6 +11,7 @@ import {
   getRssItemForPipeline,
   listQueueItems,
   listSuggestions,
+  retryFailedQueueItems,
 } from "./queue.mjs";
 import { fetchAndParseFeed, validateFeedUrl } from "./rss.mjs";
 import {
@@ -2292,6 +2293,21 @@ if (
         );
 
         return json(await processQueueItems(env.DB, env, { limit }));
+      }
+
+      if (
+        routePath === "/api/editor/pipeline/retry" &&
+        request.method === "POST"
+      ) {
+        let input = {};
+        try {
+          input = await bodyJson(request);
+        } catch {
+          return json({ error: "Conteúdo inválido." }, 400);
+        }
+
+        const limit = Math.min(20, Math.max(1, Number(input.limit) || 20));
+        return json(await retryFailedQueueItems(env.DB, { limit }));
       }
 
       // ========================================
